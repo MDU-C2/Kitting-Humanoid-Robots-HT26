@@ -13,6 +13,11 @@ The purpose of the project is to investigate the feasibility of deploying humano
 ## Scope & priorities 
 Enabling the kitting task is the top priority.  Identifying, picking and placing the objects in the correct location on the kitting tray is the main task. Enabling safe interaction between the humanoid and its environment, is also encouraged, but not a priority. 
 
+## Main goals and objectives
+- Object identification and pose estimation of known objects in clear environment.
+- Pick and place procedures in a clear environment. 
+- Correct execution of a kitting task in clear lab setting.
+
 ## Key reqirements
 - The Unitree G1 must be able to pick and place different objects to be kitted without dropping it.
 - The Unitree G1 must be able to manipulate the grasped objects for correct placement on the kitting tray.
@@ -23,3 +28,15 @@ Enabling the kitting task is the top priority.  Identifying, picking and placing
 ## Success criteria
 The project is a success if the objective “Correct execution of a kitting task in clear lab setting” and all prior main steps, according to the objective priorities, and product requirements are fulfilled
 
+---
+
+## Hardware
+
+| Component | Details |
+|---|---|
+| Platform | Unitree G1 EDU humanoid |
+| Compute | Onboard NVIDIA Jetson Orin |
+| Perception | Onboard 3D LiDAR + head-mounted Intel RealSense D435i (RGB-D) |
+| Manipulation | Integrated robotic arm |
+
+---
