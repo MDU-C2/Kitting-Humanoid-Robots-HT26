@@ -1,0 +1,63 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{datetime2}
+\usepackage{parskip}
+
+\begin{document}
+
+% ── Header ──────────────────────────────────────────────────────────────
+\begin{center}
+  {\LARGE\bfseries Mötesprotokoll}\\[0.5em]
+  {KAHRIS (Kitting automation robots (in) industrial settings)}
+\end{center}
+
+\bigskip
+
+% ── Meeting info ─────────────────────────────────────────────────────────
+\begin{tabular}{@{} l l}
+  \textbf{Datum:}      & \DTMtoday \\
+\end{tabular}
+
+\bigskip
+
+\textbf{Närvarande: Whilliam, Joni, Kim, Oskar, Gustav, Gustav}\quad
+
+\medskip
+
+% ── Agenda table ─────────────────────────────────────────────────────────
+\begin{tabularx}{\textwidth}{%
+    >{\bfseries}c                  % § number, bold
+    >{\raggedright\arraybackslash}X % Topic / discussion
+    >{\raggedright\arraybackslash}X  % Decision / action
+  }
+  \toprule
+  \textbf{\#} & \textbf{Ansvarsområden} & \textbf{Framsteg} \\
+  \midrule
+  1 & Ansvarsområde1 & \\[2.5em]
+  2 & Ansvarsområde2 & \\[2.5em]
+  3 & Ansvarsområde3 & \\[2.5em]
+  4 & Ansvarsområde4& \\[2.5em]
+  5 & Ansvarsområde5& \\[2.5em]
+  6 & Ansvarsområde6& \\[2.5em]
+\end{tabularx}
+\begin{tabularx}{\textwidth}{%
+    >{\bfseries}c                  % § number, bold
+    >{\raggedright\arraybackslash}X % Topic / discussion
+    >{\raggedright\arraybackslash}X  % Decision / action
+  }
+  \toprule
+  \textbf{\#} & \textbf{Övrigt arbete} & \textbf{Framsteg} \\
+  \midrule
+  1 & Övrigt 1 & \\[2.5em]
+  2 & Övrigt 2 & \\[2.5em]
+
+  \bottomrule
+\end{tabularx}
+
+\bigskip\bigskip
+
+
+\end{document}
