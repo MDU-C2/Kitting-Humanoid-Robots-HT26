@@ -1,0 +1,1 @@
+ObjectDetection folder contains files and code for the ObjectDetection aspect of the project such as training data, data processing,model etc.
