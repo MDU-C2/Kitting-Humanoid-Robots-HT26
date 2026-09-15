@@ -1,0 +1,1 @@
+The Vision folder contains files and code for the vision aspect of the project.
