@@ -45,7 +45,7 @@ This is an instruction to how to connect to the Unitree G1 via Ethernet
     To run codes, for example view_pic_g1_cam.py for connecting to the depth camera on
     the Unitree G1.
 
-    Write int the terminal:
+    Write in the terminal:
         source ~/miniconda3/bin/activate ~~teleimager~~
         sudo systemctl stop teleimager.service         # Turn off previous work process, blocks the camera port
         python3 view_pic_g1_cam.py
