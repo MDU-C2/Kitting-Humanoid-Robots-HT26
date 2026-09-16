@@ -6,8 +6,10 @@ This is an instruction to how to connect to the Unitree G1 via Ethernet
 
 2. Test Link
     write in terminal:
-        ping 192.168.123.161 # 
-        ping 192.168.123.164 #
+        ping 192.168.123.161    #Locomotion Computer 
+        ping 192.168.123.164    #Developer Computer. Password unitree/123
+        ping 192.168.123.20     #360 Lidar
+    
     
     If you are connecting a new coputer you may need to configure the IP adress.
     As the robot dosen't have a DHCP built-in, you may have change the IP to static ip
@@ -16,7 +18,7 @@ This is an instruction to how to connect to the Unitree G1 via Ethernet
 
 3. SSH To The G1
     write int the terminal:
-        ssh -X [unitree@192.168.123.164]
+        ssh -X unitree@192.168.123.164
     
     It may ask which ROS you want to use, chose 1 for foxy.
 
@@ -47,5 +49,5 @@ This is an instruction to how to connect to the Unitree G1 via Ethernet
 
     Write in the terminal:
         source ~/miniconda3/bin/activate ~~teleimager~~
-        sudo systemctl stop teleimager.service         # Turn off previous work process, blocks the camera port
+        sudo systemctl stop teleimager.service            # Turn off previous work process, blocks the camera port
         python3 view_pic_g1_cam.py
