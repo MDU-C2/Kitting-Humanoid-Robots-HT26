@@ -40,3 +40,10 @@ The project is a success if the objective “Correct execution of a kitting task
 | Manipulation | Integrated robotic arm |
 
 ---
+
+## Required packages
+Install the Python dependencies listed in `requirements.txt`:
+
+```bash
+pip install -r requirements.txt
+```

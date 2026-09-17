@@ -1,0 +1,16 @@
+# Core
+numpy
+opencv-python
+
+# Intel RealSense camera
+pyrealsense2
+
+# YOLO / object detection
+ultralytics
+torch
+torchvision
+data_augmentation
+
+# Utilities
+matplotlib
+tqdm

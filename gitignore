@@ -1,0 +1,14 @@
+# Environments
+venv/
+.venv/
+env/
+ENV/
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
