@@ -43,11 +43,28 @@ This is an instruction to how to connect to the Unitree G1 via Ethernet
 
     If you don't get any errors it should work.
 
-5. Run code
-    To run codes, for example view_pic_g1_cam.py for connecting to the depth camera on
+5. Send Code To The Robot
+    To use codes on the robot, you need to first send that code/file to the robot. To send to the robot, first in 
+    the host computer go to the location of the file you want to send by using "cd" and then send it with "scp":
+        cd ~/<FILE_LOCATION>
+        scp ~/<FILE_NAME> unitree@192.168.123.164:~/
+
+    To edit a file in the robot use "nano" function:
+        nano <FILE_NAME>
+        Ctrl + O, Enter, then Ctrl + X to save.
+
+    To remove a file in the robot use "rm" function:
+        rm <FILE_NAME>
+
+    To install or update packages in the robot use "sudo install" or "sudo update" respectively: 
+        sudo insatll <PACKAGE_NAME>
+        sudo apt uptade
+
+6. Run code
+    To run codes, for example G1_data_collector.py for connecting to the depth camera on
     the Unitree G1.
 
     Write in the terminal:
         source ~/miniconda3/bin/activate ~~teleimager~~
         sudo systemctl stop teleimager.service            # Turn off previous work process, blocks the camera port
-        python3 view_pic_g1_cam.py
+        python3 G1_data_collector.py
