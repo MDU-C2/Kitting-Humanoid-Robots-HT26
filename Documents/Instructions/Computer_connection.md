@@ -44,6 +44,8 @@ The first time, type `yes` to accept the host key, then enter the password of th
 
 After logging in, the prompt changes to `rosdev@rosdev-15:~$`. Everything you type now runs on the Linux machine.
 
+**Important**: Windows doesn't have a built-in X11 server, so `-X` forwarding won't display anything by itself. You can dowload [MobaXterm](https://mobaxterm.mobatek.net/download-home-edition.html) portable edition to add one. it's free and the portable edtion doesn't require installing or changing anything on the computer, so it works on work and school computers too.
+
 To leave the session, type:
 ```bash
 exit
