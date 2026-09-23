@@ -15,7 +15,9 @@ Instructions for connecting a host computer to the Unitree G1 over Ethernet, gai
 
 ## 1. Physical Connection 
 
-Connect an Ethernet cable from your host to port **[4]** or **[5]** on the Unitree G1. If you are unsure which port is which, consult the Unitree G1 [developer guide](https://support.unitree.com/home/en/G1_developer).
+Connect an Ethernet cable from your host to port **[4]** or **[5]** on the Unitree G1. If you are unsure which port is which, consult the Unitree G1 [developer guide](https://support.unitree.com/home/en/G1_developer). 
+
+This also works over wifi now, provided you're on the same network/router. The instructions are the same.
 
 ---
 
