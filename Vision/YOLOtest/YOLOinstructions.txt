@@ -1,0 +1,35 @@
+Instruktion starta YOLO (via wifi och ethernet)
+Ha 2 terminaler uppe
+
+-----terminal 1 (Kopla till robot)
+ssh unitree@192.168.123.164
+
+-----Välj 1 för foxy
+
+-----Aktivera venv på roboten
+conda activate kitting38
+
+-----Stoppa kameraprocessen som redan körs
+sudo /unitree/sbin/mscli stopservice video_hub_pc4
+
+-----Kör pythonscriptet på roboten
+python3 g1_yolo_stream.py
+
+Bör ge följande output om rätt:
+(kitting38) unitree@ubuntu:~$ python3 g1_yolo_stream.pyLaddar YOLO-modellen...
+Startar RealSense pipeline...
+Kör inferens live...
+Stream tillgänglig på http://192.168.123.164:8080/
+192.168.123.181 - - [24/Sep/2026 17:31:17] "GET /stream.mjpg HTTP/1.1" 200 -
+
+-----starta terminal 2 på egen dator
+-----Kör pythonscriptet där med
+python g1_yolo_view.py
+
+Om korrekt kommer detta skrivas ut:
+Ansluter till roboten: http://192.168.123.164:8080/stream.mjpg...
+QSettings::value: Empty key passed
+QSettings::value: Empty key passed
+
+
+Bör också få upp en bildruta där man kan se kameran från roboten
