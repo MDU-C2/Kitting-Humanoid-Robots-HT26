@@ -66,7 +66,7 @@ The Docker environment includes:
 Install Git and Docker, then clone the repository:
 
 ```bash
-git clone git@github.com:MDU-C2/Kitting-Humanoid-Robots-HT26.git
+git clone https://github.com/MDU-C2/Kitting-Humanoid-Robots-HT26.git
 cd Kitting-Humanoid-Robots-HT26
 ```
 
