@@ -47,3 +47,31 @@ Install the Python dependencies listed in `requirements.txt`:
 ```bash
 pip install -r requirements.txt
 ```
+
+## ROS 2 Docker Development Environment
+
+The ROS 2 workspace is developed inside a Docker container to provide a
+consistent development environment across different computers.
+
+The Docker environment includes:
+
+- ROS 2 Humble
+- MoveIt 2
+- ros2_control
+- ros2_controllers
+- Git and common development tools
+
+### Setup
+
+Install Git and Docker, then clone the repository:
+
+```bash
+git clone git@github.com:MDU-C2/Kitting-Humanoid-Robots-HT26.git
+cd Kitting-Humanoid-Robots-HT26
+```
+
+Start the environment:
+
+```bash
+./docker/start.sh
+```
