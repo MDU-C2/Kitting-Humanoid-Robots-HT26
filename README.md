@@ -70,7 +70,7 @@ git clone git@github.com:MDU-C2/Kitting-Humanoid-Robots-HT26.git
 cd Kitting-Humanoid-Robots-HT26
 ```
 
-Start the environment:
+Start the development environment with:
 
 ```bash
 ./docker/start.sh
