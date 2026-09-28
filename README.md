@@ -59,12 +59,19 @@ to be installed separately on the host system.
 
 ### Prerequisites
 
-On a fresh Ubuntu installation, the following are required:
+On a fresh Ubuntu installation, install:
 
 - Git
 - Docker
 - GitHub access
-- A graphical desktop session for RViz and MoveIt GUI applications
+- A graphical desktop environment for RViz and MoveIt GUI applications
+
+After installing Docker, add your user to the `docker` group so Docker
+commands can be executed without `sudo`:
+
+```bash
+sudo usermod -aG docker $USER
+```
 
 ### Setup
 
@@ -73,6 +80,7 @@ Clone the repository:
 ```bash
 git clone https://github.com/MDU-C2/Kitting-Humanoid-Robots-HT26.git
 cd Kitting-Humanoid-Robots-HT26
+```
 
 Start the development environment with:
 
