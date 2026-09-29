@@ -50,12 +50,11 @@ pip install -r requirements.txt
 
 ## ROS 2 Docker Development Environment
 
-The ROS 2 workspace is developed inside a Docker container to provide a
-consistent development environment across different computers.
+The ROS 2 workspace is developed inside a Docker container to provide a consistent and reproducible development environment across different computers.
 
-The Docker environment includes ROS 2 Humble, MoveIt 2, ros2_control,
-ros2_controllers, and the required development tools. These do not need
-to be installed separately on the host system.
+The Docker environment includes **ROS 2 Humble**, **MoveIt 2**, **ros2_control**, **ros2_controllers**, and the required development tools and dependencies. These components do not need to be installed separately on the host system.
+
+For a complete overview of the packages, dependencies, and tools installed in the development environment, see the [`Dockerfile`](Dockerfile).
 
 ### Prerequisites
 
@@ -63,8 +62,8 @@ On a fresh Ubuntu installation, install:
 
 - Git
 - Docker
-- GitHub access
-- A graphical desktop environment for RViz and MoveIt GUI applications
+- GitHub access (Recommended)
+- A graphical desktop environment for RViz and MoveIt GUI applications (e.g. Ubunto)
 
 After installing Docker, add your user to the `docker` group so Docker
 commands can be executed without `sudo`:
