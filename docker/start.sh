@@ -27,16 +27,14 @@ if [ -z "${XAUTHORITY_VALUE}" ] || [ ! -f "${XAUTHORITY_VALUE}" ]; then
     exit 1
 fi
 
-if ! docker image inspect "${IMAGE_NAME}" >/dev/null 2>&1; then
-    echo "Docker image ${IMAGE_NAME} not found. Building it..."
+echo "Building Docker image ${IMAGE_NAME}..."
 
-    docker build \
-        --build-arg USERNAME="${USERNAME}" \
-        --build-arg USER_UID="${USER_UID}" \
-        --build-arg USER_GID="${USER_GID}" \
-        -t "${IMAGE_NAME}" \
-        "${PROJECT_DIR}"
-fi
+docker build \
+    --build-arg USERNAME="${USERNAME}" \
+    --build-arg USER_UID="${USER_UID}" \
+    --build-arg USER_GID="${USER_GID}" \
+    -t "${IMAGE_NAME}" \
+    "${PROJECT_DIR}"
 
 if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
     echo "Removing existing container ${CONTAINER_NAME}..."
