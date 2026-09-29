@@ -10,4 +10,4 @@ The script also configures X11 forwarding, allowing graphical applications
 such as **RViz** to run from inside the Docker container.
 
 For implementation details and the complete configuration, 
-see [`start_container.sh`](start_container.sh).
+see [`start.sh`](start.sh).
