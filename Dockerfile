@@ -4,9 +4,11 @@ RUN apt-get update && apt-get install -y \
     nano \
     tmux \
     git \
+    python3-vcstool \
     ros-humble-moveit \
     ros-humble-ros2-control \
     ros-humble-ros2-controllers \
+    ros-humble-rosidl-generator-dds-idl \
     ros-humble-joint-state-publisher-gui \
     && rm -rf /var/lib/apt/lists/*
 

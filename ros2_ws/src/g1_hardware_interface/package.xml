@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>g1_hardware_interface</name>
+  <version>0.1.0</version>
+  <description>
+    ros2_control SystemInterface bridging the G1's 14 arm joints onto Unitree's
+    weight-blended rt/arm_sdk DDS channel, with the onboard controller kept
+    balancing the legs. Also publishes the legs and waist to /joint_states, which
+    no controller owns. See README for the safety/authority model.
+  </description>
+  <maintainer email="gupta.adyansh@gmail.com">Adyansh</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>realtime_tools</depend>
+  <depend>sensor_msgs</depend>
+  <depend>unitree_hg</depend>
+
+  <!-- Lint checks run via workspace-root CTests (see CMakeLists.txt). -->
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_cmake_lint_cmake</test_depend>
+  <test_depend>ament_cmake_xmllint</test_depend>
+  <test_depend>ament_cmake_gmock</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

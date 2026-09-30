@@ -16,3 +16,6 @@ Thumbs.db
 ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
+
+# External ROS 2 dependencies
+ros2_ws/src/unitree_ros2/

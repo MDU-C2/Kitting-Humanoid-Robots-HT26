@@ -1,0 +1,31 @@
+# Parameters for g1_hardware_interface/G1ArmSdkSystem.
+#
+# These values are loaded by the robot Xacro and passed to the
+# ros2_control hardware plugin through <param> elements.
+
+system:
+  command_publish_rate: 100.0
+  blend_ramp_up_s: 2.0
+  blend_ramp_down_s: 2.0
+  emergency_ramp_down_s: 0.5
+  max_joint_velocity_rad_s: 1.0
+  lowstate_timeout_ms: 100
+  waist_kp: 160.0
+  waist_kd: 4.0
+
+joints:
+  left_shoulder_pitch_joint:  { motor_index: 15, kp: 40, kd: 1 }
+  left_shoulder_roll_joint:   { motor_index: 16, kp: 40, kd: 1 }
+  left_shoulder_yaw_joint:    { motor_index: 17, kp: 40, kd: 1 }
+  left_elbow_joint:           { motor_index: 18, kp: 40, kd: 1 }
+  left_wrist_roll_joint:      { motor_index: 19, kp: 25, kd: 1 }
+  left_wrist_pitch_joint:     { motor_index: 20, kp: 25, kd: 1 }
+  left_wrist_yaw_joint:       { motor_index: 21, kp: 25, kd: 1 }
+
+  right_shoulder_pitch_joint: { motor_index: 22, kp: 40, kd: 1 }
+  right_shoulder_roll_joint:  { motor_index: 23, kp: 40, kd: 1 }
+  right_shoulder_yaw_joint:   { motor_index: 24, kp: 40, kd: 1 }
+  right_elbow_joint:          { motor_index: 25, kp: 40, kd: 1 }
+  right_wrist_roll_joint:     { motor_index: 26, kp: 25, kd: 1 }
+  right_wrist_pitch_joint:    { motor_index: 27, kp: 25, kd: 1 }
+  right_wrist_yaw_joint:      { motor_index: 28, kp: 25, kd: 1 }
