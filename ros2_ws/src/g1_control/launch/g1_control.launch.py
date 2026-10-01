@@ -47,3 +47,21 @@ def generate_launch_description():
         ],
         output="screen",
     )
+
+    arm_trajectory_controller_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=[
+            "arm_trajectory_controller",
+            "--controller-manager",
+            "/controller_manager",
+            "--inactive",
+        ],
+        output="screen",
+    )
+
+    return LaunchDescription([
+        control_node,
+        joint_state_broadcaster_spawner,
+        arm_trajectory_controller_spawner,
+    ])

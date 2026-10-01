@@ -4,8 +4,10 @@
          base_class_type="hardware_interface::SystemInterface">
     <description>
       ros2_control System bridging the G1's 14 arm joints onto Unitree's
-      weight-blended rt/arm_sdk DDS channel; legs/waist/hands stay with the
-      onboard controller. See the package README for the safety/ramp model.
+      weight-blended rt/arm_sdk DDS channel. The legs remain under onboard
+      control, while the waist is held internally by this hardware interface
+      during arm control. The hands are handled separately. See the package
+      README for the safety/ramp model.
     </description>
   </class>
 </library>

@@ -2,6 +2,15 @@ controller_manager:
   ros__parameters:
     update_rate: 200  # Hz
 
+    # Start the G1 hardware interface inactive for safe initialization.
+    # Communication/state feedback is initialized, but arm commands are not
+    # published until the hardware is explicitly activated.
+    # See: g1_control/README.md
+
+    hardware_components_initial_state:
+      inactive:
+        - G1ArmSdkSystem
+
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 

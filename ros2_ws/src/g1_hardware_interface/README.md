@@ -66,18 +66,28 @@ the legs. The weight in motor slot 29 tells it how much of the arm command to ho
 
 Values live in `g1_description/config/arm_sdk_params.yaml`.
 
-## Running
+## Running in this project
 
-The plugin loads through `controller_manager`, so it comes up with the stack:
+This repository contains a project-specific integration of the upstream
+`g1_hardware_interface`. The hardware interface is loaded by
+`controller_manager` through the `g1_control` package.
+
+The current control stack is started with:
 
 ```bash
-ros2 launch g1_bringup bringup.launch.py
-ros2 launch g1_bringup activate_arm.launch.py
+ros2 launch g1_control g1_control.launch.py
 ```
 
-Acquire and release order is mandatory. Humble ties command-interface availability to hardware
-component state, so activating the controller before the component can fail the switch or strand a
-controller claiming interfaces. The `activate_arm` and `deactivate_arm` scripts encode the order.
+In this project, the `G1ArmSdkSystem` hardware component intentionally starts
+in the `inactive` state. Communication and state feedback can therefore be
+initialized without immediately enabling arm command output on `/arm_sdk`.
+
+The `arm_trajectory_controller` also starts inactive. Hardware and controller
+activation are performed explicitly before trajectory commands can be
+executed.
+
+The physical-robot activation and deactivation procedure will be documented
+here after it has been validated on the G1.
 
 ## Safety model
 
