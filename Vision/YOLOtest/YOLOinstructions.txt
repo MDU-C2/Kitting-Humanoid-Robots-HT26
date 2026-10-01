@@ -1,4 +1,5 @@
 Instruktion starta YOLO (via wifi och ethernet)
+Föreslår att ha både robot och utvecklingsdatorn kopplade till MITC nätverket
 Ha 2 terminaler uppe
 
 -----terminal 1 (Kopla till robot)
