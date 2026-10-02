@@ -16,6 +16,28 @@ XAUTHORITY_VALUE="${XAUTHORITY:-}"
 IMAGE_NAME="g1-moveit:humble-${USER_UID}-${USER_GID}"
 CONTAINER_NAME="g1_project_humble"
 
+G1_SUBNET_PREFIX="192.168.123."
+G1_NETWORK_INTERFACE="$(
+    ip -o -4 addr show |
+    awk -v prefix="${G1_SUBNET_PREFIX}" '$4 ~ ("^" prefix) && $4 ~ /\/24$/ {print $2; exit}'
+)"
+
+DOCKER_ROS_NETWORK_ARGS=()
+
+if [ -n "${G1_NETWORK_INTERFACE}" ]; then
+    echo "G1 network detected on interface: ${G1_NETWORK_INTERFACE}"
+
+    CYCLONEDDS_URI_VALUE="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"${G1_NETWORK_INTERFACE}\" priority=\"default\" multicast=\"default\" /></Interfaces></General></Domain></CycloneDDS>"
+
+    DOCKER_ROS_NETWORK_ARGS+=(
+        -e "RMW_IMPLEMENTATION=rmw_cyclonedds_cpp"
+        -e "CYCLONEDDS_URI=${CYCLONEDDS_URI_VALUE}"
+    )
+else
+    echo "G1 network not detected."
+    echo "Starting container without G1-specific DDS configuration."
+fi
+
 if [ ! -d "${WORKSPACE_DIR}" ]; then
     echo "Error: ROS 2 workspace not found at ${WORKSPACE_DIR}"
     exit 1
@@ -52,5 +74,6 @@ docker run -it \
     --mount type=bind,source="${XAUTHORITY_VALUE}",target=/tmp/.docker.xauth,readonly \
     -e DISPLAY="${DISPLAY_VALUE}" \
     -e XAUTHORITY=/tmp/.docker.xauth \
+    "${DOCKER_ROS_NETWORK_ARGS[@]}" \
     "${IMAGE_NAME}" \
     bash
