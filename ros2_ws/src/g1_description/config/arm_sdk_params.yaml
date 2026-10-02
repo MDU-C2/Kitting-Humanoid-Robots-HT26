@@ -8,7 +8,7 @@ system:
   blend_ramp_up_s: 2.0
   blend_ramp_down_s: 2.0
   emergency_ramp_down_s: 0.5
-  max_joint_velocity_rad_s: 1.0
+  max_joint_velocity_rad_s: 0.5
   lowstate_timeout_ms: 100
   waist_kp: 160.0
   waist_kd: 4.0
