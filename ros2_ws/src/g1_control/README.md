@@ -6,7 +6,7 @@ for controlling the Unitree G1 arms through `ros2_control`.
 ## Hardware Interface Lifecycle
 
 The `G1ArmSdkSystem` hardware interface is intentionally initialized in the
-`inactive` state by `controller_manager`.
+`unconfigured` state by `controller_manager`.
 
 The lifecycle is:
 
@@ -22,6 +22,17 @@ UNCONFIGURED
   ACTIVE
 ```
 
+## Unconfigured State
+
+The hardware interface starts in the `unconfigured` state as a safe lockout
+state. In this state, the arm command interfaces are unavailable and cannot be
+claimed by the trajectory controller.
+
+Communication with the G1 is not initialized until the hardware interface is
+explicitly configured. Transitioning to `inactive` therefore acts as an
+explicit preparation step before robot communication and state feedback are
+enabled.
+
 ## Inactive State
 
 During `on_configure()`, the hardware interface initializes communication with
@@ -36,6 +47,16 @@ The hardware interface does not publish arm commands while inactive.
 
 This allows communication and robot-state reception to be established before
 the hardware interface is explicitly given command authority.
+
+## Controller Startup
+
+Both `joint_state_broadcaster` and `arm_trajectory_controller` are loaded and
+configured in the `inactive` state during startup.
+
+This prevents the controllers from being activated while the hardware
+interface is still `unconfigured`. After the hardware has been explicitly
+configured, the required controllers can be activated as part of the
+controlled startup sequence.
 
 ## Activation
 

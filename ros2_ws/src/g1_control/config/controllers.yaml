@@ -2,13 +2,13 @@ controller_manager:
   ros__parameters:
     update_rate: 200  # Hz
 
-    # Start the G1 hardware interface inactive for safe initialization.
-    # Communication/state feedback is initialized, but arm commands are not
-    # published until the hardware is explicitly activated.
+    # Start the G1 hardware interface unconfigured as a safe lockout state.
+    # The hardware must be explicitly configured before communication/state
+    # feedback is initialized, and explicitly activated before commands are sent.
     # See: g1_control/README.md
 
     hardware_components_initial_state:
-      inactive:
+      unconfigured:
         - G1ArmSdkSystem
 
     joint_state_broadcaster:
