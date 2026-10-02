@@ -32,6 +32,7 @@ fi
 echo "Importing ROS 2 dependencies from ${REPOS_FILE}..."
 
 docker run --rm \
+    --network host \
     --mount type=bind,source="${REPOS_FILE}",target=/tmp/ros2.repos,readonly \
     --mount type=bind,source="${WORKSPACE_SRC}",target=/workspace/src \
     "${IMAGE_NAME}" \

@@ -30,6 +30,7 @@ fi
 echo "Building Docker image ${IMAGE_NAME}..."
 
 docker build \
+    --network host \
     --build-arg USERNAME="${USERNAME}" \
     --build-arg USER_UID="${USER_UID}" \
     --build-arg USER_GID="${USER_GID}" \
@@ -44,6 +45,7 @@ fi
 echo "Starting ${CONTAINER_NAME}..."
 
 docker run -it \
+    --network host \
     --name "${CONTAINER_NAME}" \
     --mount type=bind,source="${WORKSPACE_DIR}",target=/workspace \
     --mount type=bind,source=/tmp/.X11-unix,target=/tmp/.X11-unix,readonly \
