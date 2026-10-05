@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y \
     tmux \
     git \
     iproute2 \
+    iputils-ping\
     python3-vcstool \
     ros-humble-moveit \
     ros-humble-ros2-control \
