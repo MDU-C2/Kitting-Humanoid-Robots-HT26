@@ -16,11 +16,17 @@ XAUTHORITY_VALUE="${XAUTHORITY:-}"
 IMAGE_NAME="g1-moveit:humble-${USER_UID}-${USER_GID}"
 CONTAINER_NAME="g1_project_humble"
 
-G1_SUBNET_PREFIX="192.168.123."
+G1_ROBOT_IP="192.168.123.161"
+
 G1_NETWORK_INTERFACE="$(
-    ip -o -4 addr show |
-    awk -v prefix="${G1_SUBNET_PREFIX}" '$4 ~ ("^" prefix) && $4 ~ /\/24$/ {print $2; exit}'
+    ip route get "${G1_ROBOT_IP}" 2>/dev/null |
+    awk '{for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i+1); exit}}'
 )"
+
+if [ -n "${G1_NETWORK_INTERFACE}" ] &&
+   ! ping -I "${G1_NETWORK_INTERFACE}" -c 1 -W 1 "${G1_ROBOT_IP}" >/dev/null 2>&1; then
+    G1_NETWORK_INTERFACE=""
+fi
 
 DOCKER_ROS_NETWORK_ARGS=()
 
