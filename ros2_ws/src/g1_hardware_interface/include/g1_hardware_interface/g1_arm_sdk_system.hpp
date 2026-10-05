@@ -199,12 +199,7 @@ private:
      *
      * Escalate mode_ to kEmergencyRampDown if a second publisher is detected on /arm_sdk.
      */
-    void checkPublisherCount();
 
-    /**
-     * @brief Synchronously ramps down the arm weight during lifecycle transitions.
-     * @param target_mode Target blend mode for the ramp.
-     */
     void rampDownSynchronously(BlendMode target_mode);
 
     /// Internal node and single-threaded executor for DDS I/O.
@@ -214,7 +209,6 @@ private:
     rclcpp::Subscription<unitree_hg::msg::LowState>::SharedPtr          lowstate_sub_;
     realtime_tools::RealtimeBuffer<StampedLowState>                     lowstate_buffer_;
     realtime_tools::RealtimePublisherSharedPtr<unitree_hg::msg::LowCmd> arm_sdk_rt_pub_;
-    rclcpp::TimerBase::SharedPtr                                        publisher_count_timer_;
 
     /// Single writer-authority state machine.
     std::atomic<BlendMode> mode_{ BlendMode::kInactive };

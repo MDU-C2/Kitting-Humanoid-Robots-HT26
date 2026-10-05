@@ -267,8 +267,6 @@ G1ArmSdkSystem::on_configure(const rclcpp_lifecycle::State& /*previous_state*/)
     arm_sdk_rt_pub_ =
         std::make_shared<realtime_tools::RealtimePublisher<unitree_hg::msg::LowCmd>>(arm_sdk_pub);
 
-    publisher_count_timer_ =
-        node_->create_wall_timer(std::chrono::seconds(1), [this] { checkPublisherCount(); });
 
     executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
     executor_->add_node(node_);
@@ -523,7 +521,6 @@ void G1ArmSdkSystem::shutdownInternalNode()
     {
         executor_thread_.join();
     }
-    publisher_count_timer_.reset();
     lowstate_sub_.reset();
     arm_sdk_rt_pub_.reset();
     if (executor_ && node_)
@@ -547,36 +544,12 @@ std::chrono::steady_clock::duration G1ArmSdkSystem::lowstateTimeoutDuration() co
         std::chrono::duration<double>(lowstate_timeout_s_));
 }
 
-void G1ArmSdkSystem::checkPublisherCount()
-{
-    if (node_->count_publishers("/arm_sdk") <= 1)
-    {
-        return;
-    }
-
-    /*
-     * Advisory guard: two publishers on /arm_sdk is unsafe. Escalate to
-     * emergency ramp-down and let write() finish it on the RT thread.
-     */
-    BlendMode expected = BlendMode::kActive;
-    if (mode_.compare_exchange_strong(
-            expected,
-            BlendMode::kEmergencyRampDown,
-            std::memory_order_acq_rel))
-    {
-        RCLCPP_ERROR(
-            node_->get_logger(),
-            "second /arm_sdk publisher detected while active -- ramping down (advisory guard "
-            "only)");
-    }
-}
-
 void G1ArmSdkSystem::rampDownSynchronously(BlendMode target_mode)
 {
     /*
-     * Never de-escalate: if write() or the advisory guard already set
-     * kEmergencyRampDown, don't downgrade to a slower ramp. CAS loop
-     * prevents a concurrent escalation from being overwritten.
+     * Never de-escalate: if write() already set kEmergencyRampDown,
+     * don't downgrade to a slower ramp. The CAS loop prevents a
+     * concurrent escalation from being overwritten.
      */
     BlendMode current = mode_.load(std::memory_order_acquire);
     while (true)
