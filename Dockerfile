@@ -28,4 +28,8 @@ RUN groupadd --gid ${USER_GID} ${USERNAME} \
                --shell /bin/bash \
                ${USERNAME}
 
+RUN echo 'source /opt/ros/humble/setup.bash' >> /home/${USERNAME}/.bashrc \
+    && echo 'if [ -f /workspace/install/setup.bash ]; then source /workspace/install/setup.bash; fi' >> /home/${USERNAME}/.bashrc \
+    && chown ${USERNAME}:${USERNAME} /home/${USERNAME}/.bashrc
+
 USER ${USERNAME}
