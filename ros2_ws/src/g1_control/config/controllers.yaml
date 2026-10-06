@@ -44,6 +44,10 @@ arm_trajectory_controller:
 
     allow_partial_joints_goal: true
 
+    # Initialize the trajectory controller from the robot's measured state
+    # rather than the previous value stored in the command interface.
+    set_last_command_interface_value_as_state_on_activation: false
+
     constraints:
       stopped_velocity_tolerance: 0.05
       goal_time: 0.0
