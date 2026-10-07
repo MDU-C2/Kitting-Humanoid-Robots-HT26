@@ -108,6 +108,7 @@ def generate_launch_description():
         executable="rviz2",
         name="rviz",
         output="screen",
+        arguments=["-d", os.path.join(g1_moveit_share, "config", "moveit.rviz")],
         parameters=[
             robot_description,
             robot_description_semantic,
