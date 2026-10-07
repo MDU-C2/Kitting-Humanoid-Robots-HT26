@@ -18,6 +18,8 @@ namespace
 
 std::array<double, kNumWaistJoints> waistHold() { return { 0.05, -0.02, 0.11 }; }
 
+std::array<double, kNumArmJoints> zeroTorque() { return {}; }
+
 std::array<int, kNumArmJoints> realMotorIndexMap()
 {
     std::array<int, kNumArmJoints> indices{};
@@ -42,7 +44,7 @@ TEST(AssembleLowCmd, NonArmNonWeightSlotsStayZeroed)
         kd[i]       = 1.0;
     }
 
-    assembleLowCmd(cmd, motor_index, position, kp, kd, 0.7F, waistHold(), 160.0, 4.0);
+    assembleLowCmd(cmd, motor_index, position, kp, kd, zeroTorque(), 0.7F, waistHold(), 160.0, 4.0);
 
     for (std::size_t slot = 0; slot < cmd.motor_cmd.size(); ++slot)
     {
@@ -77,7 +79,7 @@ TEST(AssembleLowCmd, ArmSlotsGetPositionAndGains)
         kd[i]       = 1.0;
     }
 
-    assembleLowCmd(cmd, motor_index, position, kp, kd, 0.3F, waistHold(), 160.0, 4.0);
+    assembleLowCmd(cmd, motor_index, position, kp, kd, zeroTorque(), 0.3F, waistHold(), 160.0, 4.0);
 
     for (std::size_t i = 0; i < kNumArmJoints; ++i)
     {
@@ -92,6 +94,36 @@ TEST(AssembleLowCmd, ArmSlotsGetPositionAndGains)
     }
 }
 
+TEST(AssembleLowCmd, ArmSlotsGetFeedForwardTorque)
+{
+    unitree_hg::msg::LowCmd           cmd{};
+    const auto                        motor_index = realMotorIndexMap();
+    std::array<double, kNumArmJoints> position{};
+    std::array<double, kNumArmJoints> kp{};
+    std::array<double, kNumArmJoints> kd{};
+    std::array<double, kNumArmJoints> torque{};
+
+    for (std::size_t i = 0; i < kNumArmJoints; ++i)
+    {
+        torque[i] = -3.0 + 0.25 * static_cast<double>(i);
+    }
+
+    assembleLowCmd(
+        cmd, motor_index, position, kp, kd, torque, 1.0F, waistHold(), 160.0, 4.0);
+
+    for (std::size_t i = 0; i < kNumArmJoints; ++i)
+    {
+        const auto& motor = cmd.motor_cmd[static_cast<std::size_t>(motor_index[i])];
+        EXPECT_FLOAT_EQ(motor.tau, static_cast<float>(torque[i]));
+    }
+
+    for (std::size_t i = 0; i < kNumWaistJoints; ++i)
+    {
+        EXPECT_FLOAT_EQ(
+            cmd.motor_cmd[static_cast<std::size_t>(kWaistMotorIndex[i])].tau, 0.0F);
+    }
+}
+
 TEST(AssembleLowCmd, WaistSlotsHoldTheirLatchedPositionAtWaistGains)
 {
     // Zero gains here are a torso with no stiffness under arm load, which is what /arm_sdk
@@ -103,7 +135,7 @@ TEST(AssembleLowCmd, WaistSlotsHoldTheirLatchedPositionAtWaistGains)
     const std::array<double, kNumArmJoints> kd{};
     const auto                              hold = waistHold();
 
-    assembleLowCmd(cmd, motor_index, position, kp, kd, 1.0F, hold, 160.0, 4.0);
+    assembleLowCmd(cmd, motor_index, position, kp, kd, zeroTorque(), 1.0F, hold, 160.0, 4.0);
 
     for (std::size_t i = 0; i < kNumWaistJoints; ++i)
     {
@@ -135,7 +167,8 @@ TEST(AssembleLowCmd, TheLatchReadsTheSameSlotsTheCommandWrites)
 
     unitree_hg::msg::LowCmd                 cmd{};
     const std::array<double, kNumArmJoints> zeros{};
-    assembleLowCmd(cmd, realMotorIndexMap(), zeros, zeros, zeros, 1.0F, hold, 160.0, 4.0);
+    assembleLowCmd(
+        cmd, realMotorIndexMap(), zeros, zeros, zeros, zeroTorque(), 1.0F, hold, 160.0, 4.0);
     EXPECT_FLOAT_EQ(cmd.motor_cmd[12].q, 12.5F);
     EXPECT_FLOAT_EQ(cmd.motor_cmd[13].q, 13.5F);
     EXPECT_FLOAT_EQ(cmd.motor_cmd[14].q, 14.5F);
@@ -149,7 +182,8 @@ TEST(AssembleLowCmd, WeightSlotIsPlacedAtMotorCmd29)
     const std::array<double, kNumArmJoints> kp{};
     const std::array<double, kNumArmJoints> kd{};
 
-    assembleLowCmd(cmd, motor_index, position, kp, kd, 0.42F, waistHold(), 160.0, 4.0);
+    assembleLowCmd(
+        cmd, motor_index, position, kp, kd, zeroTorque(), 0.42F, waistHold(), 160.0, 4.0);
 
     ASSERT_EQ(kWeightMotorIndex, 29U);
     EXPECT_FLOAT_EQ(cmd.motor_cmd[29].q, 0.42F);
@@ -163,7 +197,8 @@ TEST(AssembleLowCmd, NeverTouchesModePrOrModeMachine)
     const std::array<double, kNumArmJoints> kp{};
     const std::array<double, kNumArmJoints> kd{};
 
-    assembleLowCmd(cmd, motor_index, position, kp, kd, 1.0F, waistHold(), 160.0, 4.0);
+    assembleLowCmd(
+        cmd, motor_index, position, kp, kd, zeroTorque(), 1.0F, waistHold(), 160.0, 4.0);
 
     EXPECT_EQ(cmd.mode_pr, 0U);
     EXPECT_EQ(cmd.mode_machine, 0U);

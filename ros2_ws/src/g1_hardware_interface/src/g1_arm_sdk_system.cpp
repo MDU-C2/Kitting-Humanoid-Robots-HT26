@@ -71,6 +71,47 @@ bool parseInt(
     return true;
 }
 
+bool parseBool(
+    const std::unordered_map<std::string, std::string>& params, const std::string& key, bool& out)
+{
+    const auto it = params.find(key);
+    if (it == params.end())
+    {
+        return false;
+    }
+
+    if (it->second == "true" || it->second == "True" || it->second == "TRUE" ||
+        it->second == "1")
+    {
+        out = true;
+        return true;
+    }
+
+    if (it->second == "false" || it->second == "False" || it->second == "FALSE" ||
+        it->second == "0")
+    {
+        out = false;
+        return true;
+    }
+
+    return false;
+}
+
+bool parseString(
+    const std::unordered_map<std::string, std::string>& params,
+    const std::string&                                  key,
+    std::string&                                        out)
+{
+    const auto it = params.find(key);
+    if (it == params.end() || it->second.empty())
+    {
+        return false;
+    }
+
+    out = it->second;
+    return true;
+}
+
 /**
  * @brief Fixed tick period for rampDownSynchronously()'s own blocking loop.
  *
@@ -95,7 +136,8 @@ std::array<double, kNumWaistJoints> waistHoldFrom(const unitree_hg::msg::LowStat
 void assembleLowCmd(
     unitree_hg::msg::LowCmd& cmd, const std::array<int, kNumArmJoints>& motor_index,
     const std::array<double, kNumArmJoints>& position, const std::array<double, kNumArmJoints>& kp,
-    const std::array<double, kNumArmJoints>& kd, float weight,
+    const std::array<double, kNumArmJoints>& kd,
+    const std::array<double, kNumArmJoints>& torque, float weight,
     const std::array<double, kNumWaistJoints>& waist_hold, double waist_kp, double waist_kd)
 {
     for (std::size_t i = 0; i < kNumArmJoints; ++i)
@@ -103,7 +145,7 @@ void assembleLowCmd(
         auto& motor = cmd.motor_cmd[static_cast<std::size_t>(motor_index[i])];
         motor.q     = static_cast<float>(position[i]);
         motor.dq    = 0.0F;
-        motor.tau   = 0.0F;
+        motor.tau   = static_cast<float>(torque[i]);
         motor.kp    = static_cast<float>(kp[i]);
         motor.kd    = static_cast<float>(kd[i]);
     }
@@ -204,7 +246,19 @@ G1ArmSdkSystem::on_init(const hardware_interface::HardwareInfo& info)
         parseDouble(hw_params, "max_joint_velocity_rad_s", max_joint_velocity_rad_s_) &&
         parseDouble(hw_params, "lowstate_timeout_ms", lowstate_timeout_ms) &&
         parseDouble(hw_params, "waist_kp", waist_kp_) &&
-        parseDouble(hw_params, "waist_kd", waist_kd_);
+        parseDouble(hw_params, "waist_kd", waist_kd_) &&
+        parseBool(
+            hw_params,
+            "gravity_compensation_enabled",
+            gravity_compensation_enabled_) &&
+        parseDouble(
+            hw_params,
+            "gravity_compensation_scale",
+            gravity_compensation_scale_) &&
+        parseString(
+            hw_params,
+            "gravity_compensation_urdf",
+            gravity_compensation_urdf_);
     if (!params_ok)
     {
         RCLCPP_ERROR(
@@ -223,6 +277,40 @@ G1ArmSdkSystem::on_init(const hardware_interface::HardwareInfo& info)
             "all system <param> tunables must be strictly positive");
         return hardware_interface::CallbackReturn::ERROR;
     }
+
+    if (gravity_compensation_scale_ < 0.0 || gravity_compensation_scale_ > 1.0)
+    {
+        RCLCPP_ERROR(
+            rclcpp::get_logger(kLoggerName),
+            "gravity_compensation_scale must be in the range [0.0, 1.0]");
+        return hardware_interface::CallbackReturn::ERROR;
+    }
+
+    gravity_compensator_.reset();
+
+    if (gravity_compensation_enabled_)
+    {
+        try
+        {
+            gravity_compensator_ =
+                std::make_unique<GravityCompensator>(gravity_compensation_urdf_);
+        }
+        catch (const std::exception& error)
+        {
+            RCLCPP_ERROR(
+                rclcpp::get_logger(kLoggerName),
+                "failed to initialize gravity compensator from '%s': %s",
+                gravity_compensation_urdf_.c_str(),
+                error.what());
+            return hardware_interface::CallbackReturn::ERROR;
+        }
+    }
+
+    RCLCPP_INFO(
+        rclcpp::get_logger(kLoggerName),
+        "gravity compensation %s, scale %.3f",
+        gravity_compensation_enabled_ ? "enabled" : "disabled",
+        gravity_compensation_scale_);
 
     /*
      * nominal_period_s: see RampConfig's comment for why command_publish_rate
@@ -468,12 +556,17 @@ G1ArmSdkSystem::write(const rclcpp::Time& /*time*/, const rclcpp::Duration& peri
         }
         if (arm_sdk_rt_pub_ && arm_sdk_rt_pub_->trylock())
         {
+            const auto& published_position = ramp_engine_.publishedPositions();
+            const auto gravity_torque =
+                gravityCompensationTorque(published_position, weight);
+
             assembleLowCmd(
                 arm_sdk_rt_pub_->msg_,
                 motor_index_,
-                ramp_engine_.publishedPositions(),
+                published_position,
                 kp_,
                 kd_,
+                gravity_torque,
                 static_cast<float>(weight),
                 waist_hold_,
                 waist_kp_,
@@ -544,6 +637,34 @@ std::chrono::steady_clock::duration G1ArmSdkSystem::lowstateTimeoutDuration() co
         std::chrono::duration<double>(lowstate_timeout_s_));
 }
 
+std::array<double, kNumArmJoints> G1ArmSdkSystem::gravityCompensationTorque(
+    const std::array<double, kNumArmJoints>& arm_position, double weight)
+{
+    std::array<double, kNumArmJoints> torque{};
+
+    if (!gravity_compensation_enabled_ || !gravity_compensator_ ||
+        gravity_compensation_scale_ <= 0.0 || weight <= 0.0)
+    {
+        return torque;
+    }
+
+    torque = gravity_compensator_->compute(waist_hold_, arm_position);
+
+    /*
+     * Ramp feed-forward torque with the same authority weight used for
+     * /arm_sdk. At weight=0 the commanded feed-forward torque is therefore
+     * guaranteed to be zero during activation/deactivation hand-off.
+     */
+    const double applied_scale = gravity_compensation_scale_ * weight;
+
+    for (double& joint_torque : torque)
+    {
+        joint_torque *= applied_scale;
+    }
+
+    return torque;
+}
+
 void G1ArmSdkSystem::rampDownSynchronously(BlendMode target_mode)
 {
     /*
@@ -582,12 +703,17 @@ void G1ArmSdkSystem::rampDownSynchronously(BlendMode target_mode)
         {
             /* Blocking lock is fine: not the RT path, and write() is quiescent. */
             arm_sdk_rt_pub_->lock();
+            const auto& published_position = ramp_engine_.publishedPositions();
+            const auto gravity_torque =
+                gravityCompensationTorque(published_position, weight);
+
             assembleLowCmd(
                 arm_sdk_rt_pub_->msg_,
                 motor_index_,
-                ramp_engine_.publishedPositions(),
+                published_position,
                 kp_,
                 kd_,
+                gravity_torque,
                 static_cast<float>(weight),
                 waist_hold_,
                 waist_kp_,

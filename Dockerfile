@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     iputils-ping\
     python3-vcstool \
     ros-humble-moveit \
+    ros-humble-pinocchio \
     ros-humble-ros2-control \
     ros-humble-ros2-controllers \
     ros-humble-rmw-cyclonedds-cpp \

@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "g1_hardware_interface/arm_ramp_engine.hpp"
+#include "g1_hardware_interface/gravity_compensator.hpp"
 #include "hardware_interface/handle.hpp"
 #include "hardware_interface/hardware_info.hpp"
 #include "hardware_interface/system_interface.hpp"
@@ -63,8 +64,9 @@ inline constexpr std::array<int, kNumWaistJoints> kWaistMotorIndex = { 12, 13, 1
 std::array<double, kNumWaistJoints> waistHoldFrom(const unitree_hg::msg::LowState& state);
 
 /**
- * @brief Fills the 14 arm slots and the 3 waist slots on `cmd`, plus the weight slot
- * (motor_cmd[kWeightMotorIndex].q); dq/tau are set to 0 on all of them.
+ * @brief Fills the 14 arm slots and the 3 waist slots on `cmd`, plus the weight slot.
+ *
+ * Arm dq is set to zero and arm tau comes from `torque`. Waist dq/tau remain zero.
  *
  * Arms take `position`; the waist takes `waist_hold`, which is where it was measured when
  * authority was acquired. LEGS AND HANDS are left exactly as `cmd` already had it -- callers
@@ -80,6 +82,7 @@ std::array<double, kNumWaistJoints> waistHoldFrom(const unitree_hg::msg::LowStat
  * @param position     Per-joint commanded position (q) for each arm joint.
  * @param kp           Per-joint position gain for each arm joint.
  * @param kd           Per-joint velocity gain for each arm joint.
+ * @param torque       Per-joint feed-forward torque for each arm joint.
  * @param weight       Arm-sdk blend weight written to the weight slot.
  * @param waist_hold   Latched waist position, one per kWaistMotorIndex entry.
  * @param waist_kp     Position gain for all three waist motors.
@@ -88,7 +91,8 @@ std::array<double, kNumWaistJoints> waistHoldFrom(const unitree_hg::msg::LowStat
 void assembleLowCmd(
     unitree_hg::msg::LowCmd& cmd, const std::array<int, kNumArmJoints>& motor_index,
     const std::array<double, kNumArmJoints>& position, const std::array<double, kNumArmJoints>& kp,
-    const std::array<double, kNumArmJoints>& kd, float weight,
+    const std::array<double, kNumArmJoints>& kd,
+    const std::array<double, kNumArmJoints>& torque, float weight,
     const std::array<double, kNumWaistJoints>& waist_hold, double waist_kp, double waist_kd);
 
 /**
@@ -160,6 +164,13 @@ private:
     double max_joint_velocity_rad_s_{ 0.0 };
     double lowstate_timeout_s_{ 0.0 };
 
+    /// Optional Pinocchio gravity feed-forward for the 14 arm motors.
+    /// Disabled by default; scale is constrained to [0, 1].
+    bool        gravity_compensation_enabled_{ false };
+    double      gravity_compensation_scale_{ 0.0 };
+    std::string gravity_compensation_urdf_;
+    std::unique_ptr<GravityCompensator> gravity_compensator_;
+
     /// Backing storage for exported state/command interfaces.
     std::array<double, kNumArmJoints> state_position_{};
     std::array<double, kNumArmJoints> state_velocity_{};
@@ -199,6 +210,9 @@ private:
      *
      * Escalate mode_ to kEmergencyRampDown if a second publisher is detected on /arm_sdk.
      */
+
+    std::array<double, kNumArmJoints> gravityCompensationTorque(
+        const std::array<double, kNumArmJoints>& arm_position, double weight);
 
     void rampDownSynchronously(BlendMode target_mode);
 

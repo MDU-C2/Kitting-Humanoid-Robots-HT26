@@ -4,6 +4,7 @@ project(g1_hardware_interface)
 find_package(ament_cmake REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
+find_package(pinocchio REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
@@ -12,6 +13,7 @@ find_package(unitree_hg REQUIRED)
 
 add_library(g1_arm_sdk_system SHARED
   src/arm_ramp_engine.cpp
+  src/gravity_compensator.cpp
   src/motor_crc_hg.cpp
   src/g1_arm_sdk_system.cpp
 )
@@ -30,6 +32,10 @@ ament_target_dependencies(g1_arm_sdk_system PUBLIC
   rclcpp_lifecycle
   realtime_tools
   unitree_hg
+)
+
+target_link_libraries(g1_arm_sdk_system PRIVATE
+  pinocchio::pinocchio
 )
 
 # Makes the plugin discoverable via pluginlib's ament-index lookup -- the
@@ -85,6 +91,11 @@ if(BUILD_TESTING)
   # no pluginlib, no rclcpp node, no sim needed to exercise it.
   ament_add_gmock(test_arm_ramp_engine test/test_arm_ramp_engine.cpp)
   target_link_libraries(test_arm_ramp_engine g1_arm_sdk_system)
+
+  # Pinocchio gravity model must numerically match the independently
+  # validated reference calculations before being used for hardware torque.
+  ament_add_gmock(test_gravity_compensator test/test_gravity_compensator.cpp)
+  target_link_libraries(test_gravity_compensator g1_arm_sdk_system)
 
   # LowCmd slot assembly (arm/weight slots touched, everything else stays
   # zeroed) -- directly testable without a live hardware component.

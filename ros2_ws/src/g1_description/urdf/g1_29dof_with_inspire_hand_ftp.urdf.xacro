@@ -53,6 +53,10 @@
       <param name="lowstate_timeout_ms">${arm_sdk_params.system.lowstate_timeout_ms}</param>
       <param name="waist_kp">${arm_sdk_params.system.waist_kp}</param>
       <param name="waist_kd">${arm_sdk_params.system.waist_kd}</param>
+
+      <param name="gravity_compensation_enabled">${arm_sdk_params.system.gravity_compensation_enabled}</param>
+      <param name="gravity_compensation_scale">${arm_sdk_params.system.gravity_compensation_scale}</param>
+      <param name="gravity_compensation_urdf">$(find g1_description)/urdf/g1_29dof_with_inspire_hand_ftp.urdf</param>
     </hardware>
 
     <!-- Left arm -->
