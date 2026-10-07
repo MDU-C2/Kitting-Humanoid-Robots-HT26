@@ -49,7 +49,33 @@ if [ ! -d "${WORKSPACE_DIR}" ]; then
     exit 1
 fi
 
-if [ -z "${XAUTHORITY_VALUE}" ] || [ ! -f "${XAUTHORITY_VALUE}" ]; then
+DOCKER_GUI_ARGS=()
+
+IS_WSL=false
+if [ -n "${WSL_INTEROP:-}" ] || grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then
+    IS_WSL=true
+fi
+
+if [ ! -d /tmp/.X11-unix ]; then
+    echo "Error: /tmp/.X11-unix does not exist."
+    echo "GUI applications such as RViz cannot be started."
+    exit 1
+fi
+
+DOCKER_GUI_ARGS+=(
+    --mount type=bind,source=/tmp/.X11-unix,target=/tmp/.X11-unix,readonly
+    -e "DISPLAY=${DISPLAY_VALUE}"
+)
+
+if [ -n "${XAUTHORITY_VALUE}" ] && [ -f "${XAUTHORITY_VALUE}" ]; then
+    echo "Using X11 authentication file: ${XAUTHORITY_VALUE}"
+    DOCKER_GUI_ARGS+=(
+        --mount type=bind,source="${XAUTHORITY_VALUE}",target=/tmp/.docker.xauth,readonly
+        -e XAUTHORITY=/tmp/.docker.xauth
+    )
+elif [ "${IS_WSL}" = true ] && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    echo "WSLg detected; using its X11 socket without XAUTHORITY."
+else
     echo "Error: XAUTHORITY is not set or does not point to a valid file."
     echo "GUI applications such as RViz cannot be started safely."
     exit 1
@@ -65,6 +91,42 @@ docker build \
     -t "${IMAGE_NAME}" \
     "${PROJECT_DIR}"
 
+# Ensure workspace source dependencies from ros2.repos are available.
+UNITREE_REPO_DIR="${WORKSPACE_DIR}/src/unitree_ros2"
+UNITREE_HG_PACKAGE="${UNITREE_REPO_DIR}/cyclonedds_ws/src/unitree/unitree_hg/package.xml"
+
+EXPECTED_UNITREE_COMMIT="$(
+    awk '
+        /^[[:space:]]*unitree_ros2:[[:space:]]*$/ { in_unitree=1; next }
+        in_unitree && /^[[:space:]]*version:[[:space:]]*/ { print $2; exit }
+    ' "${PROJECT_DIR}/ros2.repos"
+)"
+
+if [ -z "${EXPECTED_UNITREE_COMMIT}" ]; then
+    echo "Error: could not determine unitree_ros2 version from ros2.repos."
+    exit 1
+fi
+
+if [ ! -f "${UNITREE_HG_PACKAGE}" ]; then
+    echo "Unitree ROS 2 dependency is missing."
+    echo "Importing dependencies from ros2.repos..."
+    "${SCRIPT_DIR}/import_dependencies.sh"
+else
+    CURRENT_UNITREE_COMMIT="$(git -C "${UNITREE_REPO_DIR}" rev-parse HEAD)"
+
+    if [ "${CURRENT_UNITREE_COMMIT}" != "${EXPECTED_UNITREE_COMMIT}" ]; then
+        echo "Error: unitree_ros2 is checked out at the wrong commit."
+        echo "Expected: ${EXPECTED_UNITREE_COMMIT}"
+        echo "Current:  ${CURRENT_UNITREE_COMMIT}"
+        echo
+        echo "The checkout will not be changed automatically because it may contain local work."
+        exit 1
+    fi
+
+    echo "Unitree ROS 2 dependency present at expected commit:"
+    echo "  ${CURRENT_UNITREE_COMMIT}"
+fi
+
 if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
     echo "Removing existing container ${CONTAINER_NAME}..."
     docker rm -f "${CONTAINER_NAME}"
@@ -76,10 +138,7 @@ docker run -it \
     --network host \
     --name "${CONTAINER_NAME}" \
     --mount type=bind,source="${WORKSPACE_DIR}",target=/workspace \
-    --mount type=bind,source=/tmp/.X11-unix,target=/tmp/.X11-unix,readonly \
-    --mount type=bind,source="${XAUTHORITY_VALUE}",target=/tmp/.docker.xauth,readonly \
-    -e DISPLAY="${DISPLAY_VALUE}" \
-    -e XAUTHORITY=/tmp/.docker.xauth \
+    "${DOCKER_GUI_ARGS[@]}" \
     "${DOCKER_ROS_NETWORK_ARGS[@]}" \
     "${IMAGE_NAME}" \
     bash
