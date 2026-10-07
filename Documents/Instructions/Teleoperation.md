@@ -1,6 +1,6 @@
 # G1 Teleoperation – Quick Start (xr_teleoperate)
 
-Teleoperate the Unitree G1 with Inspire FTP hands using a Meta Quest 3.
+Teleoperate the Unitree G1 with Inspire FTP hands using a Meta Quest 3. Both the G1 and the PC needs to be in the same network for teleoperation to work. Go to [Robot_connection](Robot_connection.md) for instructions to connect the G1 to a wireless network.
 
 ## Setup at a glance
 
