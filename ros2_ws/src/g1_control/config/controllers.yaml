@@ -44,8 +44,11 @@ arm_trajectory_controller:
 
     allow_partial_joints_goal: true
 
-    # Initialize the trajectory controller from the robot's measured state
-    # rather than the previous value stored in the command interface.
+    # Initialize from the measured robot state when the controller is activated,
+    # then use the last commanded state as the starting state for new trajectories.
+    # This preserves command continuity when measured joint positions differ from
+    # commanded positions under gravity/load.
+    open_loop_control: true
     set_last_command_interface_value_as_state_on_activation: false
 
     constraints:

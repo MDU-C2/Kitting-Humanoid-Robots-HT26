@@ -74,6 +74,16 @@ def generate_launch_description():
         "config/moveit_controllers.yaml",
     )
 
+    # Publish the robot TF tree from /joint_states.
+    # This uses the same robot_description as MoveIt so the planning
+    # model and published TF frames cannot accidentally diverge.
+    robot_state_publisher = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        output="screen",
+        parameters=[robot_description],
+    )
+
     move_group = Node(
         package="moveit_ros_move_group",
         executable="move_group",
@@ -106,6 +116,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        robot_state_publisher,
         move_group,
         rviz,
     ])
