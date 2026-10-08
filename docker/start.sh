@@ -91,41 +91,8 @@ docker build \
     -t "${IMAGE_NAME}" \
     "${PROJECT_DIR}"
 
-# Ensure workspace source dependencies from ros2.repos are available.
-UNITREE_REPO_DIR="${WORKSPACE_DIR}/src/unitree_ros2"
-UNITREE_HG_PACKAGE="${UNITREE_REPO_DIR}/cyclonedds_ws/src/unitree/unitree_hg/package.xml"
-
-EXPECTED_UNITREE_COMMIT="$(
-    awk '
-        /^[[:space:]]*unitree_ros2:[[:space:]]*$/ { in_unitree=1; next }
-        in_unitree && /^[[:space:]]*version:[[:space:]]*/ { print $2; exit }
-    ' "${PROJECT_DIR}/ros2.repos"
-)"
-
-if [ -z "${EXPECTED_UNITREE_COMMIT}" ]; then
-    echo "Error: could not determine unitree_ros2 version from ros2.repos."
-    exit 1
-fi
-
-if [ ! -f "${UNITREE_HG_PACKAGE}" ]; then
-    echo "Unitree ROS 2 dependency is missing."
-    echo "Importing dependencies from ros2.repos..."
-    "${SCRIPT_DIR}/import_dependencies.sh"
-else
-    CURRENT_UNITREE_COMMIT="$(git -C "${UNITREE_REPO_DIR}" rev-parse HEAD)"
-
-    if [ "${CURRENT_UNITREE_COMMIT}" != "${EXPECTED_UNITREE_COMMIT}" ]; then
-        echo "Error: unitree_ros2 is checked out at the wrong commit."
-        echo "Expected: ${EXPECTED_UNITREE_COMMIT}"
-        echo "Current:  ${CURRENT_UNITREE_COMMIT}"
-        echo
-        echo "The checkout will not be changed automatically because it may contain local work."
-        exit 1
-    fi
-
-    echo "Unitree ROS 2 dependency present at expected commit:"
-    echo "  ${CURRENT_UNITREE_COMMIT}"
-fi
+# Import/verify pinned source repositories from ros2.repos.
+"${SCRIPT_DIR}/import_dependencies.sh"
 
 if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
     echo "Removing existing container ${CONTAINER_NAME}..."
