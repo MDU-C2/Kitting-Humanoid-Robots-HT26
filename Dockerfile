@@ -138,7 +138,7 @@ RUN echo 'source /opt/ros/humble/setup.bash' >> /home/${USERNAME}/.bashrc \
 
 # Colored terminal prompt using the Docker image name.
 RUN printf '%s\n' \
-    'export PS1="\[\e[1;36m\]\u@${IMAGE_NAME:-DOCKER}\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ "' \
+    'export PS1="\[\e[1;36m\]\u@${CONTAINER_NAME:-DOCKER}\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ "' \
     >> /home/${USERNAME}/.bashrc
 
 # Ctrl+K clears the terminal.
