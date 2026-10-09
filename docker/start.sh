@@ -94,6 +94,17 @@ docker build \
 # Import/verify pinned source repositories from ros2.repos.
 "${SCRIPT_DIR}/import_dependencies.sh"
 
+# Build and validate the bind-mounted ROS workspace before opening an
+# interactive shell. This uses the same image/user/workspace as the final
+# container and does not contact or command the robot.
+echo "Initializing ROS 2 workspace..."
+docker run --rm \
+    --network none \
+    --mount type=bind,source="${WORKSPACE_DIR}",target=/workspace \
+    --mount type=bind,source="${SCRIPT_DIR}/initialize_workspace.sh",target=/tmp/initialize_workspace.sh,readonly \
+    "${IMAGE_NAME}" \
+    bash /tmp/initialize_workspace.sh
+
 if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
     echo "Removing existing container ${CONTAINER_NAME}..."
     docker rm -f "${CONTAINER_NAME}"
