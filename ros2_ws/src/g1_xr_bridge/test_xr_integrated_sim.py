@@ -154,6 +154,122 @@ class SourceOverlayTests(unittest.TestCase):
         np.testing.assert_allclose(torque, 0.7)
 
 
+class MotionModeHandoverDecisionTests(unittest.TestCase):
+    """Execute the exact in-memory XR main-loop decision block; zero DDS."""
+
+    def test_vr_trajectory_hold_explicit_resume_and_feedback_loss(self):
+        import textwrap
+        from types import SimpleNamespace
+
+        original = overlay.XR_ROOT / 'teleop' / 'teleop_hand_and_arm.py'
+        patched = overlay.patch_main(original.read_text(encoding='utf-8'))
+        start = patched.index('            # VR: use unchanged original XR IK')
+        stop = patched.index('            # record data', start)
+        block = textwrap.dedent(patched[start:stop])
+        source = ('def tick(arm_ik, arm_ctrl, g1_bridge, current_lr_arm_q, '
+                  'current_lr_arm_dq, tele_data, time, logger_mp, g1_bridge_initial_hold=True):\n' +
+                  textwrap.indent(block, '    ') +
+                  '    return sol_q, sol_tauff\n')
+        namespace = {}
+        exec(compile(source, '<pinned XR motion loop decision>', 'exec'), namespace)
+        tick = namespace['tick']
+
+        class IK:
+            def __init__(self):
+                self.calls = 0
+            def solve_ik(self, *unused):
+                self.calls += 1
+                return np.full(14, 0.10), np.full(14, 0.20)
+
+        class Guard:
+            def __init__(self):
+                self.heartbeats = 0
+            def heartbeat(self):
+                self.heartbeats += 1
+
+        class Arm:
+            def __init__(self):
+                self.bridge_last_lowstate_at = time.monotonic()
+                self.bridge_lowstate_seq = 1
+                self.bridge_motion_guard = Guard()
+                self.commands = []
+            def get_current_motor_q(self):
+                return np.zeros(29)
+            def ctrl_dual_arm(self, q, tau):
+                self.commands.append((np.asarray(q).copy(), np.asarray(tau).copy()))
+
+        class Bridge:
+            def __init__(self):
+                self.mux = SimpleNamespace(source=SimpleNamespace(value='vr'))
+                self.trajectory_q = np.full(14, 0.35)
+                self.hold_q = np.full(14, 0.45)
+                self.frames = []
+            def update_sim_state(self, motors):
+                assert len(motors) == 29
+            def _gravity(self, q):
+                return np.full(14, 0.70)
+            def frame(self, measured, vr_q, vr_tau, *, vr_ready):
+                source = self.mux.source.value
+                self.frames.append((source, vr_ready))
+                if source == 'trajectory':
+                    return SimpleNamespace(q=self.trajectory_q.copy(),
+                                           tau_ff=self._gravity(self.trajectory_q))
+                if source == 'hold':
+                    return SimpleNamespace(q=self.hold_q.copy(),
+                                           tau_ff=self._gravity(self.hold_q))
+                return SimpleNamespace(q=np.asarray(vr_q).copy(),
+                                       tau_ff=np.asarray(vr_tau).copy())
+
+        ik, arm, bridge = IK(), Arm(), Bridge()
+        logger = SimpleNamespace(debug=lambda *_: None)
+        tele = SimpleNamespace(motion_data_ready=True, left_wrist_pose=None,
+                               right_wrist_pose=None)
+        measured = np.zeros(14)
+
+        def run():
+            # This test starts after the overlay's one-time initial HOLD setup.
+            # It tests the decision block without constructing a DDS controller.
+            return tick(ik, arm, bridge, measured, measured, tele, time, logger)
+
+        # VR uses the original IK output.
+        run()
+        self.assertEqual(ik.calls, 1)
+        np.testing.assert_allclose(arm.commands[-1][0], 0.10)
+
+        # MoveIt owns the arms: never solve headset IK, even with fresh tracking.
+        bridge.mux.source.value = 'trajectory'
+        run()
+        self.assertEqual(ik.calls, 1)
+        np.testing.assert_allclose(arm.commands[-1][0], 0.35)
+        self.assertEqual(bridge.frames[-1], ('trajectory', False))
+
+        # After completion, HOLD wins even if VR IK continues producing targets.
+        bridge.mux.source.value = 'hold'
+        run()
+        self.assertEqual(ik.calls, 2)
+        np.testing.assert_allclose(arm.commands[-1][0], 0.45)
+        self.assertEqual(bridge.frames[-1], ('hold', True))
+
+        # VR can command again only after an explicit source change by the mux.
+        bridge.mux.source.value = 'vr'
+        run()
+        self.assertEqual(ik.calls, 3)
+        np.testing.assert_allclose(arm.commands[-1][0], 0.10)
+
+        # No fresh DDS receipt -> reject before sending another arm command,
+        # advancing the bridge, or refreshing the motion guard heartbeat.
+        count = len(arm.commands)
+        heartbeat_count = arm.bridge_motion_guard.heartbeats
+        frame_count = len(bridge.frames)
+        arm.bridge_last_lowstate_at = time.monotonic() - 1.0
+        with self.assertRaisesRegex(RuntimeError, 'stale'):
+            run()
+        self.assertEqual(len(arm.commands), count)
+        self.assertEqual(arm.bridge_motion_guard.heartbeats, heartbeat_count)
+        self.assertEqual(len(bridge.frames), frame_count)
+
+
+
 class FeedbackFreshTests(unittest.TestCase):
     def test_new_lowstate_receipt_required(self):
         clock = time.monotonic()
