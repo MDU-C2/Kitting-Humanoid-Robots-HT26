@@ -113,6 +113,15 @@ RUN bash /tmp/install_xr_micromamba.sh && rm /tmp/install_xr_micromamba.sh
 ENV MAMBA_ROOT_PREFIX=/opt/mamba
 ENV XR_PYTHON=/opt/mamba/envs/xr/bin/python
 
+# Read-only Inspire FTP state-message SDK in XR's own Micromamba environment.
+# Public community mirror pinned to the revision observed on Marc.
+# This pins source bytes, but does not constitute a security audit.
+ARG INSPIRE_HAND_SDK_REF=fc754900caaaa82c9b59fb12c1b79ebfd1c1a0e7
+COPY docker/install_inspire_ftp_sdk.sh /tmp/install_inspire_ftp_sdk.sh
+RUN INSPIRE_HAND_SDK_REF="${INSPIRE_HAND_SDK_REF}" \
+    bash /tmp/install_inspire_ftp_sdk.sh \
+    && rm /tmp/install_inspire_ftp_sdk.sh
+
 WORKDIR /workspace
 
 ARG USERNAME=rosdev

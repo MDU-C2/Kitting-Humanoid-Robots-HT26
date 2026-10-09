@@ -3,6 +3,7 @@
 
 OFFLINE (default): synthetic XR/Pinocchio + ROS + RViz, NO Unitree DDS.
 OBSERVE: actual G1 LowState subscription ONLY; MoveIt execution disabled.
+HARDWARE-PREFLIGHT: observe + continuous receipt/feedback validation; NO motor commands.
 XR-SIM: XR VR + original G1_29 controller in externally isolated Isaac sim.
 HARDWARE: deliberately not implemented. Do not bypass interlocks.
 """
@@ -35,7 +36,15 @@ def build_commands(args):
     """Pure planner for inspection/tests; does not run or import robot SDK."""
     if args.mode == 'hardware':
         raise ValueError('HARDWARE BLOCKED: watchdog, blending, measured action tolerances and physical stop are unvalidated')
-    if args.mode == 'observe' and not args.interface:
+    if args.moveit_plan_shadow and args.mode != 'hardware-preflight':
+        raise ValueError('--moveit-plan-shadow requires READ-ONLY hardware-preflight')
+    if args.moveit_plan_shadow and args.no_moveit:
+        raise ValueError('--moveit-plan-shadow needs MoveIt planning; remove --no-moveit')
+    if args.arm_selector_probe and args.mode != 'hardware-preflight':
+        raise ValueError('--arm-selector-probe is only allowed in read-only hardware-preflight')
+    if args.ftp_observe and args.mode != 'hardware-preflight':
+        raise ValueError('--ftp-observe is only allowed in read-only hardware-preflight')
+    if args.mode in ('observe', 'hardware-preflight') and not args.interface:
         raise ValueError('--interface is required for read-only G1 observation')
     if args.mode == 'xr-sim' and (args.isolation_ack != 'ISOLATED_SIMULATOR' or not args.sim_interface):
         raise ValueError('XR simulator requires --isolation-ack ISOLATED_SIMULATOR and --sim-interface')
@@ -46,31 +55,54 @@ def build_commands(args):
     # Deliberate separation: XR Python is Micromamba, ROS Python is Ubuntu.
     xr_env = dict(env)
     xr_env.pop('PYTHONPATH', None)
-    xr_env.pop('LD_LIBRARY_PATH', None)
+    # Use XR's matching conda-forge OpenSSL/native libraries, not Ubuntu's
+    # older libcrypto from the ROS-sourced shell. Do not modify ROS env.
+    xr_env['LD_LIBRARY_PATH'] = '/opt/mamba/envs/xr/lib'
     commands = []
     if args.mode == 'offline':
         commands.append(('XR offline Pinocchio/IK, zero DDS',
                          [str(XR_PY), str(HERE/'xr_inprocess_offline_harness.py')], xr_env))
-    elif args.mode == 'observe':
+    elif args.mode in ('observe', 'hardware-preflight'):
         commands.append(('G1 read-only LowState observer',
                          [str(XR_PY), str(HERE/'g1_readonly_observer.py'),
                           '--interface', args.interface], xr_env))
     else:
         xr_env['G1_XR_SIM_ACK'] = 'ISOLATED_SIMULATOR'
-        command = [str(XR_PY), str(HERE/'xr_integrated_sim_overlay.py'),
-                   '--g1-bridge-sim', '--sim', '--motion', '--arm', 'G1_29',
+        adapter_script = ('xr_minimal_sim_overlay.py' if args.xr_adapter == 'minimal'
+                          else 'xr_integrated_sim_overlay.py')
+        adapter_flag = ('--g1-bridge-minimal-sim' if args.xr_adapter == 'minimal'
+                        else '--g1-bridge-sim')
+        command = [str(XR_PY), str(HERE/adapter_script),
+                   adapter_flag, '--sim', '--motion', '--arm', 'G1_29',
                    '--ee', 'inspire_ftp', '--network-interface', args.sim_interface,
                    '--img-server-ip', args.image_server_ip]
         if args.xr_ipc:
             command.append('--ipc')
         commands.append(('ORIGINAL XR + VR (ISOLATED SIMULATOR ONLY)', command, xr_env))
 
+    if args.mode == 'hardware-preflight' and args.ftp_observe:
+        commands.append(('Read-only Inspire FTP DDS state observer (NO commands)',
+                         [str(XR_PY), str(HERE/'g1_ftp_readonly_observer.py'),
+                          '--interface', args.interface], xr_env))
+        commands.append(('FTP real read-only feedback preflight (NO commands)',
+                         [str(ROS_PY), str(HERE/'g1_ftp_preflight.py'), '--watch'], env))
+        commands.append(('ROS FTP raw normalized diagnostics (NOT /joint_states)',
+                         command_for_ros([str(ROS_PY), str(HERE/'g1_ftp_ros_relay.py')]), env))
+    if args.mode == 'hardware-preflight' and args.arm_selector_probe:
+        commands.append(('G1 read-only measured arm selector probe (NO commands)',
+                         [str(ROS_PY), str(HERE/'g1_measured_arm_probe.py'), '--watch'], env))
+    if args.mode == 'hardware-preflight' and args.moveit_plan_shadow:
+        commands.append(('G1 MoveIt displayed-plan shadow (NO commands)',
+                         command_for_ros([str(ROS_PY), str(HERE/'g1_moveit_shadow_monitor.py')]), env))
+    if args.mode == 'hardware-preflight':
+        commands.append(('G1 real read-only feedback preflight (NO commands)',
+                         [str(ROS_PY), str(HERE/'g1_hardware_preflight.py'), '--watch'], env))
     if sim:
         commands.append(('MoveIt -> XR offline/sim FollowJointTrajectory action',
                          command_for_ros([str(ROS_PY), str(HERE/'ros2_trajectory_inprocess_sim.py')]), env))
     commands.append(('ROS measured/synthetic joint-state relay',
                      command_for_ros([str(ROS_PY), str(HERE/'g1_joint_state_relay.py'),
-                                      '--mode', args.mode]), env))
+                                      '--mode', 'observe' if args.mode == 'hardware-preflight' else args.mode]), env))
     if not args.no_moveit:
         commands.append(('MoveIt 2 + robot_state_publisher' + ('' if args.no_rviz else ' + RViz'),
                          command_for_ros(['ros2', 'launch', 'g1_moveit_config',
@@ -87,12 +119,14 @@ def preflight(args):
         raise RuntimeError(f'Missing Docker-provisioned Micromamba Python: {XR_PY}')
     if not ROS_PY.is_file() or not ROS_BASE.is_file() or not ROS_INSTALL.is_file():
         raise RuntimeError('ROS 2 Humble /workspace/install not available. Run colcon build and source ROS inside Docker.')
-    paths = ['/tmp/g1_xr_readonly_state.sock' if args.mode == 'observe'
+    paths = ['/tmp/g1_xr_readonly_state.sock' if args.mode in ('observe', 'hardware-preflight')
              else '/tmp/g1_xr_bridge_inprocess_sim.sock']
+    if args.ftp_observe:
+        paths.append('/tmp/g1_xr_ftp_readonly.sock')
     if any(os.path.lexists(p) for p in paths):
         raise RuntimeError('IPC socket already exists; another controller/observer may own it. Refusing to replace it.')
-    if args.mode in ('observe', 'xr-sim'):
-        iface = args.interface if args.mode == 'observe' else args.sim_interface
+    if args.mode in ('observe', 'hardware-preflight', 'xr-sim'):
+        iface = args.interface if args.mode in ('observe', 'hardware-preflight') else args.sim_interface
         if not (Path('/sys/class/net') / iface).exists():
             raise RuntimeError(f'Network interface missing: {iface}')
 
@@ -154,9 +188,17 @@ def supervise(commands):
 
 def get_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--mode', choices=['offline', 'observe', 'xr-sim', 'hardware'], default='offline')
-    parser.add_argument('--interface', help='Real G1 NIC; observe mode READ ONLY')
+    parser.add_argument('--mode', choices=['offline', 'observe', 'hardware-preflight', 'xr-sim', 'hardware'], default='offline')
+    parser.add_argument('--interface', help='Real G1 NIC; observe/hardware-preflight READ ONLY')
+    parser.add_argument('--arm-selector-probe', action='store_true',
+                        help='Hardware-preflight ONLY: dry-run arm selector against measured G1 LowState; no commands')
+    parser.add_argument('--moveit-plan-shadow', action='store_true',
+                        help='Hardware-preflight ONLY: inspect MoveIt Plan visualization against real arm pose; NEVER execute')
+    parser.add_argument('--ftp-observe', action='store_true',
+                        help='Hardware-preflight ONLY: subscribe to measured Inspire FTP hands read-only')
     parser.add_argument('--sim-interface', help='Isolated Isaac simulator DDS NIC (not connected to G1)')
+    parser.add_argument('--xr-adapter', choices=['existing', 'minimal'], default='existing',
+                        help='XR-SIM only: existing guarded overlay or minimal untouched-XR adapter')
     parser.add_argument('--isolation-ack', help='Must equal ISOLATED_SIMULATOR for xr-sim')
     parser.add_argument('--image-server-ip', default='127.0.0.1', help='XR camera server for isolated sim')
     parser.add_argument('--xr-ipc', action='store_true', help='Use upstream XR IPC instead of keyboard r/q')
