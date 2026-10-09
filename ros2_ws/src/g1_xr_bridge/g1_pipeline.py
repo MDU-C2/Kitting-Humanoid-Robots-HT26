@@ -34,6 +34,10 @@ def command_for_ros(argv):
 
 def build_commands(args):
     """Pure planner for inspection/tests; does not run or import robot SDK."""
+    if args.enable_offline_execution and args.mode != 'offline':
+        raise ValueError('--enable-offline-execution is ONLY permitted in --mode offline (NO DDS)')
+    if args.enable_offline_execution and args.no_moveit:
+        raise ValueError('--enable-offline-execution requires MoveIt; remove --no-moveit')
     if args.mode == 'hardware':
         raise ValueError('HARDWARE BLOCKED: watchdog, blending, measured action tolerances and physical stop are unvalidated')
     if args.moveit_plan_shadow and args.mode != 'hardware-preflight':
@@ -107,7 +111,7 @@ def build_commands(args):
         commands.append(('MoveIt 2 + robot_state_publisher' + ('' if args.no_rviz else ' + RViz'),
                          command_for_ros(['ros2', 'launch', 'g1_moveit_config',
                                           'xr_pipeline_moveit.launch.py',
-                                          'enable_execution:=' + ('true' if sim else 'false'),
+                                          'enable_execution:=' + ('true' if args.enable_offline_execution or args.mode == 'xr-sim' else 'false'),
                                           'with_rviz:=' + ('false' if args.no_rviz else 'true')]), env))
     return commands
 
@@ -202,6 +206,8 @@ def get_args(argv=None):
     parser.add_argument('--isolation-ack', help='Must equal ISOLATED_SIMULATOR for xr-sim')
     parser.add_argument('--image-server-ip', default='127.0.0.1', help='XR camera server for isolated sim')
     parser.add_argument('--xr-ipc', action='store_true', help='Use upstream XR IPC instead of keyboard r/q')
+    parser.add_argument('--enable-offline-execution', action='store_true',
+                        help='OFFLINE ONLY: opt in to MoveIt execution via synthetic XR IPC; never hardware')
     parser.add_argument('--no-moveit', action='store_true', help='Run state/ROS backend only')
     parser.add_argument('--no-rviz', action='store_true')
     parser.add_argument('--print-plan', action='store_true', help='Show child commands without launching or importing SDK')

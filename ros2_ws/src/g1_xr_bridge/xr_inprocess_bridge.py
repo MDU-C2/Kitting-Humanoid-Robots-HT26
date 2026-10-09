@@ -25,6 +25,7 @@ class XrInProcessBridge:
         self._lock = threading.RLock()
         self._last_frame_at = None
         self._last_vr_at = None
+        self._vr_ready = False  # Latest XR frame tracking readiness, not cached VR age.
         self._synthetic_joints = None  # offline harness only, never real feedback
         self._sim_joints = None  # actual simulator LowState supplied by XR main
         self._vr_q = None
@@ -61,6 +62,7 @@ class XrInProcessBridge:
         with self._lock:
             self.mux.update_measured(measured_q, now)
             self._last_frame_at = now
+            self._vr_ready = bool(vr_ready)
             if vr_ready:
                 self._vr_q = vector14(vr_q, 'VR IK q')
                 self._vr_tau = vector14(vr_tau, 'VR IK torque')
@@ -80,10 +82,22 @@ class XrInProcessBridge:
             self._synthetic_joints = joints
 
     def update_sim_state(self, all_motor_q):
-        """XR simulator only: forward its actual LowState, not fake tracking."""
-        values = np.asarray(all_motor_q, dtype=float)
-        if values.shape != (35,) or not np.isfinite(values).all():
-            raise BridgeError('Invalid simulator 35-motor feedback')
+        """XR simulator only: forward actual body motor q, not fake tracking.
+
+        Upstream G1_29_ArmController.get_current_motor_q() returns exactly
+        29 body joints, while raw Unitree LowState has 35 motor slots. Accept
+        either representation, but expose only the first 29 ROS body joints.
+        This is NOT proof that the underlying DDS sample is fresh.
+        """
+        try:
+            raw = np.asarray(all_motor_q)
+            if raw.shape not in ((29,), (35,)) or raw.dtype.kind == 'b':
+                raise BridgeError('Expected 29 body motors or 35 raw motor slots')
+            values = np.asarray(all_motor_q, dtype=float)
+        except (ValueError, TypeError, OverflowError) as exc:
+            raise BridgeError('Invalid simulator motor feedback') from exc
+        if not np.isfinite(values).all():
+            raise BridgeError('Nonfinite simulator motor feedback')
         with self._lock:
             self._sim_joints = values[:29].tolist()
 
@@ -106,7 +120,7 @@ class XrInProcessBridge:
                         'sim_joint_positions': self._sim_joints,
                         **status}
             if kind == 'resume_vr':
-                if (not status['xr_loop_fresh'] or self._vr_q is None
+                if (not status['xr_loop_fresh'] or not self._vr_ready or self._vr_q is None
                         or self._last_vr_at is None
                         or now - self._last_vr_at > VR_TIMEOUT_S):
                     raise BridgeError('Cannot resume VR: no fresh tracking/IK')

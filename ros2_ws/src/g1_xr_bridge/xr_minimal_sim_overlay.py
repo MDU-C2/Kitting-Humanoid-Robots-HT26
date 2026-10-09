@@ -58,6 +58,9 @@ def patch_main(source):
         source,
         '            arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)\n',
         "            if g1_bridge is not None:\n"
+        "                # Expose the real simulator's 29 body joints to ROS,\n"
+        "                # not a synthetic target or a command acknowledgment.\n"
+        "                g1_bridge.update_sim_state(arm_ctrl.get_current_motor_q())\n"
         "                selected = g1_bridge.frame(\n"
         "                    current_lr_arm_q, sol_q, sol_tauff,\n"
         "                    vr_ready=bool(tele_data.motion_data_ready))\n"

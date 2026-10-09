@@ -29,6 +29,7 @@ class VrFirstBridge(XrInProcessBridge):
             # a HOLD command or replace zero initialization.
             self.mux.update_measured(measured_q, now)
             self._last_frame_at = now
+            self._vr_ready = bool(vr_ready)
             if vr_ready:
                 self._vr_q = vector14(vr_q, 'VR IK q')
                 self._vr_tau = vector14(vr_tau, 'VR IK torque')

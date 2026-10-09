@@ -13,7 +13,7 @@ import g1_pipeline
 from xr_arm_input_mux import BridgeError, Source
 from xr_minimal_sim_overlay import XR_ROOT, patch_main
 from xr_vr_passthrough_bridge import VrFirstBridge
-from xr_ipc_protocol import PROTOCOL
+from xr_ipc_protocol import PROTOCOL, transact, send_sample
 
 
 class OriginalXrPreservation(unittest.TestCase):
@@ -29,6 +29,8 @@ class OriginalXrPreservation(unittest.TestCase):
         self.assertIn('sol_q, sol_tauff  = arm_ik.solve_ik(', after)
         self.assertIn('hand_ctrl = Inspire_Controller_FTP(', after)
         self.assertIn('arm_ctrl.ctrl_dual_arm_go_home()', after)
+        self.assertIn('g1_bridge.update_sim_state(arm_ctrl.get_current_motor_q())', after)
+        self.assertNotIn('g1_bridge.update_sim_state(', before.decode())
         self.assertNotIn('install_sim_controller_patch', after)
         self.assertNotIn('bridge_motion_guard', after)
 
@@ -118,6 +120,50 @@ class VrFirstTests(unittest.TestCase):
         self.assertEqual(hold.source, Source.HOLD)
         np.testing.assert_allclose(hold.q, 0.0)
         self.assertFalse(b._trajectory_ever_accepted is False)
+
+    def test_vr_first_cannot_resume_from_cached_target_after_tracking_loss(self):
+        b = self.make()
+        zero = np.zeros(14)
+        b.frame(zero, zero, zero, vr_ready=True)
+        b.handle({'protocol': PROTOCOL, 'kind': 'sample',
+                  'source': 'trajectory', 'seq': 0, 'q': [0.02] * 14})
+        b.frame(zero, zero, zero, vr_ready=True)
+        b.mux.enter_hold(time.monotonic())
+        b.frame(zero, zero, zero, vr_ready=False)
+        with self.assertRaisesRegex(BridgeError, 'fresh tracking'):
+            b.handle({'protocol': PROTOCOL, 'kind': 'resume_vr'})
+        self.assertIs(b.mux.source, Source.HOLD)
+        b.frame(zero, zero, zero, vr_ready=True)
+        self.assertEqual(b.handle({'protocol': PROTOCOL, 'kind': 'resume_vr'})['source'], 'vr')
+
+    def test_unix_socket_vr_moveit_hold_resume_without_motor_commands(self):
+        """Real IPC transport, original VR passthrough, virtual source switching."""
+        b = self.make()
+        self.addCleanup(b.stop)
+        b.start()
+        zero = np.zeros(14)
+        original_tau = np.full(14, 0.41)
+        original = b.frame(zero, zero, original_tau, vr_ready=True)
+        self.assertIs(original.tau_ff, original_tau)
+        b.update_sim_state(np.arange(29, dtype=float) / 100)
+        status = transact({'kind': 'status'}, b._socket_path)
+        self.assertEqual(len(status['sim_joint_positions']), 29)
+        self.assertFalse(status['hardware_connected'])
+        ack = send_sample(np.full(14, 0.01), 'trajectory', 0, b._socket_path)
+        self.assertFalse(ack['executed'])
+        self.assertEqual(ack['selected_source'], 'trajectory')
+        chosen = b.frame(zero, np.ones(14), original_tau, vr_ready=True)
+        self.assertIs(chosen.source, Source.TRAJECTORY)
+        np.testing.assert_allclose(chosen.q, 0.01)
+        np.testing.assert_allclose(chosen.tau_ff, 0.7)
+        hold_ack = send_sample(zero, 'hold', 1, b._socket_path)
+        self.assertEqual(hold_ack['selected_source'], 'hold')
+        chosen = b.frame(zero, zero, original_tau, vr_ready=True)
+        self.assertIs(chosen.source, Source.HOLD)
+        self.assertEqual(transact({'kind': 'resume_vr'}, b._socket_path)['source'], 'vr')
+        chosen = b.frame(zero, zero, original_tau, vr_ready=True)
+        self.assertIs(chosen.source, Source.VR)
+        np.testing.assert_allclose(chosen.tau_ff, original_tau)
 
     def test_vr_resume_requires_target_near_measured(self):
         b = self.make()

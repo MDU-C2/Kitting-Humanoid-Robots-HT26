@@ -81,6 +81,40 @@ class InProcessTests(unittest.TestCase):
         selected = self.bridge.frame(self.q, self.q, self.q, vr_ready=True, now=20.36)
         self.assertEqual(selected.source, Source.HOLD)
 
+    def test_sim_feedback_accepts_original_xr_29_motor_getter(self):
+        """XR's get_current_motor_q returns 29, not the raw 35 slots."""
+        self.bridge.frame(self.q, self.q, self.q, vr_ready=True)
+        body_q = np.arange(29, dtype=float) / 100
+        self.bridge.update_sim_state(body_q)
+        status = self.bridge.handle({'protocol': 1, 'kind': 'status'})
+        self.assertEqual(status['sim_joint_positions'], body_q.tolist())
+        self.assertTrue(status['xr_loop_fresh'])
+        self.assertTrue(status['feedback_fresh'])
+        self.assertFalse(status['hardware_connected'])
+        self.bridge.update_sim_state(np.arange(35, dtype=float) / 100)
+        self.assertEqual(self.bridge.handle({'protocol': 1, 'kind': 'status'})[
+            'sim_joint_positions'], body_q.tolist())
+
+    def test_sim_feedback_rejects_malformed_without_replacing_last_good(self):
+        self.bridge.update_sim_state(np.arange(29, dtype=float))
+        for invalid in ([0] * 28, [0] * 36, [float('nan')] * 29,
+                        [float('inf')] * 35, [True] * 29):
+            with self.assertRaises(BridgeError):
+                self.bridge.update_sim_state(invalid)
+        self.assertEqual(self.bridge._sim_joints, list(np.arange(29, dtype=float)))
+
+    def test_vr_resume_rejects_tracking_that_just_became_unready(self):
+        """Fresh cached VR target alone cannot authorize manual VR resume."""
+        self.bridge.frame(self.q, self.q, self.q, vr_ready=True)
+        self.bridge.mux.accept_sample(self.q, 'trajectory', 0, time.monotonic())
+        self.bridge.mux.enter_hold(time.monotonic())
+        self.bridge.frame(self.q, self.q, self.q, vr_ready=False)
+        with self.assertRaisesRegex(BridgeError, 'fresh tracking'):
+            self.bridge.handle({'protocol': 1, 'kind': 'resume_vr'})
+        self.assertIs(self.bridge.mux.source, Source.HOLD)
+        self.bridge.frame(self.q, self.q, self.q, vr_ready=True)
+        self.assertEqual(self.bridge.handle({'protocol': 1, 'kind': 'resume_vr'})['source'], 'vr')
+
     def test_single_socket_owner(self):
         self.bridge.start()
         other = XrInProcessBridge(gravity_fn=lambda q: self.q, socket_path=self.path)

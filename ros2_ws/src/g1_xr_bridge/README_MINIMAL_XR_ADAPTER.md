@@ -53,4 +53,12 @@ The adapter always requires `--sim` (XR DDS domain 1); `--motion` here is the
 - The XR IK loop still executes during MoveIt trajectories (to minimize changes).
   We can optimize that later, after comparing original VR behavior.
 - FTP hands remain wholly controlled by upstream XR; MoveIt controls 14 arm joints.
+- The minimal simulator overlay forwards the original XR controller's **29 measured
+  body motor positions** into the existing read-only simulator IPC status, so the
+  ROS `/joint_states` relay can publish them for MoveIt. The upstream getter
+  returns 29 values (not the 35 raw DDS slots); both representations are
+  validated. This does **not** independently prove DDS sample freshness.
+- Explicit VR resume now requires the **latest XR frame** to report tracking
+  ready, not just a recently cached VR IK target. A lost-tracking event must
+  not authorize VR ownership transfer.
 - On original XR shutdown, its original `go_home` behavior remains intact.

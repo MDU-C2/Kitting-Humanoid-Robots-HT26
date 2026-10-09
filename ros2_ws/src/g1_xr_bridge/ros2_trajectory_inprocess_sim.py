@@ -23,6 +23,7 @@ def require_measured_baseline(self):
 
 base.OfflineIpcServer.get_baseline = require_measured_baseline
 base.send_sample = lambda q, source, seq: send_sample(q, source, seq, SIM_SOCKET)
+base.read_feedback_status = lambda: transact({'kind': 'status'}, SIM_SOCKET)
 
 if __name__ == '__main__':
     base.main()

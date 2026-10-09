@@ -18,8 +18,13 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 
 from xr_arm_trajectory import ARM_JOINT_NAMES, ArmCommandRouter, Trajectory, TrajectoryError, Waypoint
 from xr_ipc_protocol import IpcError, ping, send_sample
+from offline_feedback_contract import synthetic_arm_feedback
 
 ACTION_NAME = '/g1_xr_bridge/offline_ipc/follow_joint_trajectory'
+
+
+def read_feedback_status():
+    return None  # no XR in-process status in the plain offline IPC receiver
 
 
 def convert_goal(msg, baseline=None):
@@ -125,7 +130,15 @@ class OfflineIpcServer(Node):
                 feedback.joint_names = list(ARM_JOINT_NAMES)
                 feedback.desired = JointTrajectoryPoint()
                 feedback.desired.positions = command.q.tolist()
-                # No actual/error: offline XR receiver has no physical G1 feedback.
+                # Only the offline XR harness may report ideal synthetic actual/error.
+                # Never substitute desired q as measured hardware feedback.
+                status = read_feedback_status()
+                if status is not None:
+                    synthetic = synthetic_arm_feedback(status, command.q.tolist())
+                    if synthetic is not None:
+                        actual, error = synthetic
+                        feedback.actual.positions = actual
+                        feedback.error.positions = error
                 goal_handle.publish_feedback(feedback)
                 elapsed = now - started
                 if elapsed >= next_log:
