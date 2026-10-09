@@ -125,6 +125,9 @@ def install_sim_controller_patch(controller_cls, gravity_fn=None):
          controller_cls.__init__.__globals__, namespace)
     controller_cls.__init__ = namespace['__init__']
     controller_cls._subscribe_motor_state = namespace['_subscribe_motor_state']
+    # The guarded publisher is essential: without this assignment the old
+    # XR method still writes weight slot 29 at its default full blend.
+    controller_cls._ctrl_motor_state = namespace['_ctrl_motor_state']
     controller_cls._g1_integrated_sim_patch = True
     return {'controller': controller_cls.__name__, 'original_file_unchanged': True,
             'hardware_authorized': False}
