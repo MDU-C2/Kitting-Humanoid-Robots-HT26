@@ -36,6 +36,16 @@ RUN mkdir -p /opt/cyclonedds-prefix/lib \
     && ln -s /opt/ros/humble/lib/x86_64-linux-gnu/libddsc.so \
         /opt/cyclonedds-prefix/lib/libddsc.so
 
+# Make ROS Humble native CycloneDDS dependencies discoverable
+# without mixing ROS and XR Python module paths.
+RUN printf '%s\n' \
+    '/opt/ros/humble/lib' \
+    '/opt/ros/humble/lib/x86_64-linux-gnu' \
+    > /etc/ld.so.conf.d/g1-ros-native.conf \
+    && ldconfig \
+    && ldd /opt/cyclonedds-prefix/lib/libddsc.so \
+    && ldconfig -p | grep -F libiceoryx_binding_c.so
+
 ENV CYCLONEDDS_HOME=/opt/cyclonedds-prefix
 
 # -------------------------------------------------------------------
@@ -67,7 +77,7 @@ RUN python3 -m pip install --no-cache-dir --no-deps \
 
 
 # Verify core Python dependencies during image build.
-RUN python3 - <<'PY'
+RUN . /opt/ros/humble/setup.sh && python3 - <<'PY'
 import numpy
 import pinocchio
 import rclpy
@@ -92,6 +102,17 @@ PY
 # Workspace
 # -------------------------------------------------------------------
 
+# Pin the Unitree Python SDK used by XR in the image itself.
+# ros2.repos imports the workspace checkout separately, after image creation.
+RUN git clone https://github.com/unitreerobotics/unitree_sdk2_python.git /opt/unitree_sdk2_python \
+    && git -C /opt/unitree_sdk2_python checkout 404fe44
+
+# XR Micromamba environment (separate from ROS 2 Python)
+COPY docker/install_xr_micromamba.sh /tmp/install_xr_micromamba.sh
+RUN bash /tmp/install_xr_micromamba.sh && rm /tmp/install_xr_micromamba.sh
+ENV MAMBA_ROOT_PREFIX=/opt/mamba
+ENV XR_PYTHON=/opt/mamba/envs/xr/bin/python
+
 WORKDIR /workspace
 
 ARG USERNAME=rosdev
@@ -105,5 +126,15 @@ RUN groupadd --gid ${USER_GID} ${USERNAME} \
 RUN echo 'source /opt/ros/humble/setup.bash' >> /home/${USERNAME}/.bashrc \
     && echo 'if [ -f /workspace/install/setup.bash ]; then source /workspace/install/setup.bash; fi' >> /home/${USERNAME}/.bashrc \
     && chown ${USERNAME}:${USERNAME} /home/${USERNAME}/.bashrc
+
+# Colored terminal prompt using the Docker image name.
+RUN printf '%s\n' \
+    'export PS1="\[\e[1;36m\]\u@${IMAGE_NAME:-DOCKER}\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ "' \
+    >> /home/${USERNAME}/.bashrc
+
+# Ctrl+K clears the terminal.
+RUN printf '%s\n' \
+    'bind -x '"'"'"\C-k": "clear"'"'"'' \
+    >> /home/${USERNAME}/.bashrc
 
 USER ${USERNAME}

@@ -1,0 +1,25 @@
+# For the G1 XR PIPELINE only. This is NOT the old ros2_control hardware driver.
+# The endpoint is an OFFLINE/ISOLATED-SIMULATOR prototype, not measured tracking.
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+moveit_simple_controller_manager:
+  controller_names:
+    - g1_xr_bridge
+  g1_xr_bridge:
+    type: FollowJointTrajectory
+    action_ns: inprocess_sim/follow_joint_trajectory
+    default: true
+    joints:
+      - left_shoulder_pitch_joint
+      - left_shoulder_roll_joint
+      - left_shoulder_yaw_joint
+      - left_elbow_joint
+      - left_wrist_roll_joint
+      - left_wrist_pitch_joint
+      - left_wrist_yaw_joint
+      - right_shoulder_pitch_joint
+      - right_shoulder_roll_joint
+      - right_shoulder_yaw_joint
+      - right_elbow_joint
+      - right_wrist_roll_joint
+      - right_wrist_pitch_joint
+      - right_wrist_yaw_joint

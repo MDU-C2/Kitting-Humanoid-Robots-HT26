@@ -104,6 +104,7 @@ echo "Starting ${CONTAINER_NAME}..."
 docker run -it \
     --network host \
     --name "${CONTAINER_NAME}" \
+    -e "IMAGE_NAME=${IMAGE_NAME}" \
     --mount type=bind,source="${WORKSPACE_DIR}",target=/workspace \
     "${DOCKER_GUI_ARGS[@]}" \
     "${DOCKER_ROS_NETWORK_ARGS[@]}" \
