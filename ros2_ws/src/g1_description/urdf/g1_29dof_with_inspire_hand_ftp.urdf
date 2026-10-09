@@ -24,6 +24,12 @@
       </geometry>
       <material name="dark"/>
     </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://g1_description/meshes/pelvis.STL" />
+      </geometry>
+    </collision>
   </link>
   <link name="pelvis_contour_link">
     <inertial>
@@ -446,6 +452,12 @@
         <color rgba="0.7 0.7 0.7 1"/>
       </material>
     </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://g1_description/meshes/waist_yaw_link_rev_1_0.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint name="waist_yaw_joint" type="revolute">
     <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -469,6 +481,12 @@
         <color rgba="0.7 0.7 0.7 1"/>
       </material>
     </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://g1_description/meshes/waist_roll_link_rev_1_0.STL" />
+      </geometry>
+    </collision>
   </link>
   <joint name="waist_roll_joint" type="revolute">
     <origin xyz="-0.0039635 0 0.044" rpy="0 0 0"/>
