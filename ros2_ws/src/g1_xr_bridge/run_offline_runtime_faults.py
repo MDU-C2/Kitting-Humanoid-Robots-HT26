@@ -7,7 +7,8 @@ Run INSIDE the project's ROS Humble Docker, with all other G1 pipelines stopped:
   python3 /workspace/src/g1_xr_bridge/run_offline_runtime_faults.py
 
 Starts exclusively owned offline XR + action processes (no MoveIt, no G1 DDS),
-checks cancellation/HOLD, concurrent-goal rejection, and XR child death/abort.
+checks cancellation/HOLD, concurrent-goal rejection, XR child death/abort,
+and stalled XR IPC with subsequent watchdog HOLD.
 Does not modify upstream xr_teleoperate. Not a physical stopping test.
 """
 import argparse
@@ -224,9 +225,46 @@ def xr_death_test(node, client, proc):
     # Action server stays alive, independently, and must actively report ABORTED.
 
 
+def ipc_pause_test(node, client, proc):
+    """Freeze only our owned XR process; ROS IPC must time out and abort.
+
+    SIGSTOP deliberately prevents XR from answering rather than killing it.
+    SIGCONT in finally ensures the test cannot strand a stopped XR process.
+    After resuming, the original XR selector's missing-command watchdog must
+    enter HOLD and must not automatically return to VR.
+    """
+    handle = accepted(node, client)
+    wait_source('trajectory')
+    paused = False
+    try:
+        # Only the fresh, process-group-owning XR child spawned by scenario().
+        if proc.poll() is not None:
+            raise AssertionError('XR process exited before IPC stall injection')
+        os.killpg(proc.pid, signal.SIGSTOP)
+        paused = True
+        # IPC transact has a 1-second socket timeout. A 6-second deadline
+        # also catches indefinite action hangs without waiting for 12s goal.
+        result = wait_future(node, handle.get_result_async(), 6, 'stalled IPC result')
+        if result.status != GoalStatus.STATUS_ABORTED:
+            raise AssertionError(f'IPC stall returned {result.status}, expected ABORTED')
+        if result.result.error_code == FollowJointTrajectory.Result.SUCCESSFUL:
+            raise AssertionError('IPC stall falsely reported SUCCESSFUL')
+        if proc.poll() is not None:
+            raise AssertionError('XR process died; expected stalled but still alive')
+    finally:
+        if paused and proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGCONT)
+    # XR resumed after >0.35s of missing commands; its own selector must
+    # transition to HOLD. This is an offline *target* state, NOT a motor stop.
+    wait_source('hold', timeout=4)
+    time.sleep(0.5)
+    if status_source() != 'hold':
+        raise AssertionError('unsafe automatic VR resume after IPC interruption')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--scenario', choices=['all', 'cancel', 'simultaneous', 'xr-death'],
+    parser.add_argument('--scenario', choices=['all', 'cancel', 'simultaneous', 'xr-death', 'ipc-pause'],
                         default='all')
     parser.add_argument('--log-dir', default=None)
     args = parser.parse_args()
@@ -236,7 +274,7 @@ def main():
     Path(log_dir).mkdir(parents=True, exist_ok=True)
     rclpy.init()
     checks = [('cancel', cancel_test), ('simultaneous', simultaneous_test),
-              ('xr-death', xr_death_test)]
+              ('xr-death', xr_death_test), ('ipc-pause', ipc_pause_test)]
     try:
         for name, check in checks:
             if args.scenario in ('all', name):
