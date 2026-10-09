@@ -262,9 +262,85 @@ def ipc_pause_test(node, client, proc):
         raise AssertionError('unsafe automatic VR resume after IPC interruption')
 
 
+
+def vr_handover_test(node, client, proc):
+    """Real offline ROS action + XR Pinocchio IPC with synthetic zero VR input.
+
+    Explicitly does NOT test headset tracking or upstream XR IK output. The
+    original XR IK/dynamics is loaded by our unmodified offline harness.
+    """
+    if status_source() != 'vr':
+        raise AssertionError('offline harness did not begin with VR ownership')
+
+    # Small movement: trajectory must own arms exclusively and HOLD at the end.
+    handle = wait_future(node, client.send_goal_async(goal(0.04, 2)),
+                         8, 'handover small goal response')
+    if not handle.accepted:
+        raise AssertionError('small offline handover trajectory rejected')
+    wait_source('trajectory')
+    try:
+        transact({'kind': 'resume_vr'}, SIM_SOCKET)
+    except IpcError:
+        pass
+    else:
+        raise AssertionError('VR illegally resumed over active trajectory')
+    if status_source() != 'trajectory':
+        raise AssertionError('rejected VR resume changed trajectory owner')
+
+    result = wait_future(node, handle.get_result_async(), 7, 'handover completion')
+    if result.status != GoalStatus.STATUS_SUCCEEDED:
+        raise AssertionError(f'valid offline handover goal status {result.status}')
+    wait_source('hold')
+    time.sleep(0.25)
+    if status_source() != 'hold':
+        raise AssertionError('XR automatically resumed VR after completion')
+
+    # Synthetic VR target is zero; 0.04 rad is within 0.08 rad resume tolerance.
+    reply = transact({'kind': 'resume_vr'}, SIM_SOCKET)
+    if reply.get('kind') != 'resume_vr_ack' or reply.get('source') != 'vr':
+        raise AssertionError('nearby explicit VR resume was not acknowledged')
+    wait_source('vr')
+    time.sleep(0.15)  # Offline harness ideal tracking follows VR=zero.
+
+    # Larger trajectory, then cancel after significant separation: automatic
+    # or explicit resume must refuse the now-distant synthetic VR target.
+    handle = wait_future(node, client.send_goal_async(goal(0.25, 3)),
+                         8, 'handover separated goal response')
+    if not handle.accepted:
+        raise AssertionError('second offline handover trajectory rejected')
+    wait_source('trajectory')
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        status = transact({'kind': 'status'}, SIM_SOCKET)
+        q = status.get('measured_arm_positions')
+        if q is not None and len(q) == 14 and q[3] > 0.12:
+            break
+        time.sleep(0.025)
+    else:
+        raise AssertionError('offline XR never reached separated arm position')
+
+    cancel = wait_future(node, handle.cancel_goal_async(), 5, 'handover cancel')
+    if not cancel.goals_canceling:
+        raise AssertionError('handover cancel rejected')
+    result = wait_future(node, handle.get_result_async(), 7, 'handover cancel result')
+    if result.status != GoalStatus.STATUS_CANCELED:
+        raise AssertionError(f'cancel status {result.status}, expected CANCELED')
+    wait_source('hold')
+    try:
+        transact({'kind': 'resume_vr'}, SIM_SOCKET)
+    except IpcError:
+        pass
+    else:
+        raise AssertionError('distant synthetic VR target improperly resumed')
+    if status_source() != 'hold':
+        raise AssertionError('rejected distant VR resume changed HOLD ownership')
+    time.sleep(0.4)
+    if status_source() != 'hold':
+        raise AssertionError('XR automatically resumed VR after rejected request')
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--scenario', choices=['all', 'cancel', 'simultaneous', 'xr-death', 'ipc-pause'],
+    parser.add_argument('--scenario', choices=['all', 'cancel', 'simultaneous', 'xr-death', 'ipc-pause', 'vr-handover'],
                         default='all')
     parser.add_argument('--log-dir', default=None)
     args = parser.parse_args()
@@ -274,7 +350,8 @@ def main():
     Path(log_dir).mkdir(parents=True, exist_ok=True)
     rclpy.init()
     checks = [('cancel', cancel_test), ('simultaneous', simultaneous_test),
-              ('xr-death', xr_death_test), ('ipc-pause', ipc_pause_test)]
+              ('xr-death', xr_death_test), ('ipc-pause', ipc_pause_test),
+              ('vr-handover', vr_handover_test)]
     try:
         for name, check in checks:
             if args.scenario in ('all', name):
