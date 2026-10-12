@@ -6,6 +6,8 @@ is separate from offline/simulation endpoints; no synthetic feedback is used.
 """
 import math
 import time
+import os
+import xml.etree.ElementTree as ET
 from threading import Lock
 
 import numpy as np
@@ -16,6 +18,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
+from ament_index_python.packages import get_package_share_directory
 
 from xr_arm_trajectory import ARM_JOINT_NAMES, TrajectoryError
 from ros2_trajectory_xr_ipc_dry_run import convert_goal
@@ -53,23 +56,58 @@ def send(q, source, seq):
     return result
 
 
-def prepare_trajectory(msg, baseline, max_displacement_rad=0.12, max_speed_rad_s=0.20):
+def load_joint_position_limits():
+    """Fail closed if the G1 description lacks any 14-arm position limits."""
+    urdf = os.path.join(get_package_share_directory('g1_description'), 'urdf',
+                        'g1_29dof_with_inspire_hand_ftp.urdf')
+    root = ET.parse(urdf).getroot()
+    joints = {joint.get('name'): joint for joint in root.findall('joint')}
+    limits = []
+    for name in ARM_JOINT_NAMES:
+        joint = joints.get(name)
+        limit = joint.find('limit') if joint is not None else None
+        if joint is None or joint.get('type') != 'revolute' or limit is None:
+            raise ValueError(f'Missing revolute joint/limit for {name} in {urdf}')
+        low, high = float(limit.get('lower')), float(limit.get('upper'))
+        if not (math.isfinite(low) and math.isfinite(high) and low < high):
+            raise ValueError(f'Invalid position limits for {name} in {urdf}')
+        limits.append((low, high))
+    return np.asarray(limits, dtype=float)
+
+
+def prepare_trajectory(msg, baseline, max_displacement_rad=0.0,
+                       max_speed_rad_s=0.20, joint_limits=None):
     trajectory = convert_goal(msg, baseline)
-    if trajectory.duration < 0.5 or trajectory.duration > 12:
-        raise TrajectoryError('Initial hardware trials accept duration 0.5..12 seconds')
+    if trajectory.duration < 0.5 or trajectory.duration > 60:
+        raise TrajectoryError('Physical hardware accepts trajectory duration 0.5..60 seconds')
     initial_q = trajectory.points[0][1]
     if np.max(np.abs(initial_q - baseline)) > 0.05:
         raise TrajectoryError('First planned point must agree with physical G1 arms within 0.05rad')
-    # Deliberately restrict the first physical experiment to tiny motions.
     times = list(np.arange(0, trajectory.duration, 0.02)) + [trajectory.duration]
-    samples = [trajectory.sample(float(t)) for t in times]
-    deviations = np.abs(np.asarray(samples) - baseline)
-    sample_idx, joint_idx = np.unravel_index(np.argmax(deviations), deviations.shape)
-    worst = float(deviations[sample_idx, joint_idx])
-    if worst > max_displacement_rad:
+    samples = np.asarray([trajectory.sample(float(t)) for t in times])
+    # Zero disables only the additional per-goal excursion cap.
+    # Retain URDF physical joint bounds, speed limits, and live hardware watchdogs.
+    if max_displacement_rad > 0.0:
+        deviations = np.abs(samples - baseline)
+        sample_idx, joint_idx = np.unravel_index(np.argmax(deviations), deviations.shape)
+        worst = float(deviations[sample_idx, joint_idx])
+        if worst > max_displacement_rad:
+            raise TrajectoryError(
+                f'Joint {ARM_JOINT_NAMES[joint_idx]} moves {worst:.4f}rad '
+                f'(limit {max_displacement_rad:.4f}rad) at t={times[sample_idx]:.3f}s')
+    if joint_limits is None:
+        joint_limits = load_joint_position_limits()
+    # Keep a small mechanical-margin inside every model joint bound.
+    margin = 0.03
+    lower = joint_limits[:, 0] + margin
+    upper = joint_limits[:, 1] - margin
+    invalid = np.argwhere((samples < lower) | (samples > upper))
+    if invalid.size:
+        sample_idx, joint_idx = map(int, invalid[0])
         raise TrajectoryError(
-            f'Joint {ARM_JOINT_NAMES[joint_idx]} moves {worst:.4f}rad '
-            f'(limit {max_displacement_rad:.4f}rad) at t={times[sample_idx]:.3f}s')
+            f'Joint {ARM_JOINT_NAMES[joint_idx]} position {samples[sample_idx, joint_idx]:.4f}rad '
+            f'outside model limits [{lower[joint_idx]:.4f}, {upper[joint_idx]:.4f}]rad '
+            f'at t={times[sample_idx]:.3f}s')
     if any(np.max(np.abs((b-a)/(t1-t0))) > max_speed_rad_s
            for (t0, a), (t1, b) in zip(zip(times, samples), zip(times[1:], samples[1:]))):
         raise TrajectoryError(f'Initial physical trial speed limited to {max_speed_rad_s}rad/s per joint')
@@ -81,23 +119,28 @@ class HeadlessMoveItAction(Node):
         super().__init__('g1_xr_headless_moveit_action')
         self.lock = Lock()
         self.busy = False
-        # Configurable with a conservative default. Never disable the physical guards.
-        self.declare_parameter('max_displacement_rad', 0.12)
+        # 0.0 disables the extra per-goal excursion cap, not the physical protections.
+        self.declare_parameter('max_displacement_rad', 0.0)
         self.declare_parameter('max_speed_rad_s', 0.20)
         self.max_displacement_rad = float(self.get_parameter('max_displacement_rad').value)
         self.max_speed_rad_s = float(self.get_parameter('max_speed_rad_s').value)
-        if not (0 < self.max_displacement_rad <= 0.30 and 0 < self.max_speed_rad_s <= 0.30):
-            raise ValueError('Physical limits must remain within 0..0.30 rad and 0..0.30 rad/s')
+        if not (math.isfinite(self.max_displacement_rad) and
+                0 <= self.max_displacement_rad <= 0.30 and
+                math.isfinite(self.max_speed_rad_s) and 0 < self.max_speed_rad_s <= 0.30):
+            raise ValueError('Displacement cap must be 0 (disabled) or <=0.30 rad; '
+                             'speed must be >0 and <=0.30 rad/s')
+        self.joint_limits = load_joint_position_limits()
+        cap = 'disabled (model joint position limits enforced)' if self.max_displacement_rad == 0 else f'{self.max_displacement_rad:.3f}rad'
         self.get_logger().warn(
-            f'Trial limits: displacement={self.max_displacement_rad:.3f}rad, '
-            f'speed={self.max_speed_rad_s:.3f}rad/s; physical watchdogs remain enabled')
+            f'MoveIt joint excursion cap: {cap}; speed={self.max_speed_rad_s:.3f}rad/s; '
+            'tracking and feedback watchdogs enabled')
         self.group = ReentrantCallbackGroup()
         self.action = ActionServer(
             self, FollowJointTrajectory, ACTION,
             execute_callback=self.execute, goal_callback=self.accept,
             cancel_callback=self.cancel, callback_group=self.group)
         self.get_logger().warn('PHYSICAL G1 endpoint: original XR motion-mode motor controller. '
-                               'Only use approved collision-free tiny arm motions.')
+                               'Only use operator-approved collision-free trajectories; collision model is incomplete.')
 
     def accept(self, request_msg):
         try:
@@ -106,7 +149,8 @@ class HeadlessMoveItAction(Node):
                 raise RuntimeError('Physical XR motion-mode weight ramp incomplete')
             if np.max(np.abs(dq)) > 0.12:
                 raise RuntimeError('Arms are moving; refuse trajectory ownership')
-            prepare_trajectory(request_msg.trajectory, q, self.max_displacement_rad, self.max_speed_rad_s)
+            prepare_trajectory(request_msg.trajectory, q, self.max_displacement_rad,
+                               self.max_speed_rad_s, self.joint_limits)
             if status.get('source') == 'trajectory':
                 raise RuntimeError('XR is already executing a trajectory')
         except Exception as exc:
@@ -126,7 +170,8 @@ class HeadlessMoveItAction(Node):
         seq = 0
         try:
             status, baseline, _ = state()
-            traj = prepare_trajectory(goal.request.trajectory, baseline, self.max_displacement_rad, self.max_speed_rad_s)
+            traj = prepare_trajectory(goal.request.trajectory, baseline, self.max_displacement_rad,
+                                      self.max_speed_rad_s, self.joint_limits)
             start = time.monotonic()
             last_log = 0.0
             self.get_logger().warn(f'Trajectory accepted: duration={traj.duration:.3f}s, '

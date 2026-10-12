@@ -8,7 +8,9 @@ import argparse
 import json
 import math
 import os
+import signal
 import socketserver
+import stat
 import threading
 import time
 from pathlib import Path
@@ -76,20 +78,30 @@ def main(argv=None):
     if os.path.lexists(opts.socket):
         parser.error(f'Socket already exists (possible other owner): {opts.socket}')
 
-    # Deliberately do not import original XR controller or any ChannelPublisher.
-    from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber
-    from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_ as HgLowState
-    ChannelFactoryInitialize(0, networkInterface=opts.interface)
-    subscriber = ChannelSubscriber('rt/lowstate', HgLowState)
-    subscriber.Init()
-    cache = StateCache()
-    server = UnixServer(opts.socket, Handler)
-    server.cache = cache
-    os.chmod(opts.socket, 0o600)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    print(f'READ-ONLY G1 rt/lowstate on {opts.interface}; zero command publishers', flush=True)
+    # Install the handler before DDS/socket initialization. SIGTERM can otherwise
+    # arrive after binding the socket but before entering the original loop.
+    def request_shutdown(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, request_shutdown)
+    server = None
+    thread = None
+    socket_stat = None
     try:
+        # Deliberately do not import the XR controller or any ChannelPublisher.
+        from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber
+        from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_ as HgLowState
+        ChannelFactoryInitialize(0, networkInterface=opts.interface)
+        subscriber = ChannelSubscriber('rt/lowstate', HgLowState)
+        subscriber.Init()
+        cache = StateCache()
+        server = UnixServer(opts.socket, Handler)
+        socket_stat = os.lstat(opts.socket)
+        server.cache = cache
+        os.chmod(opts.socket, 0o600)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        print(f'READ-ONLY G1 rt/lowstate on {opts.interface}; zero command publishers', flush=True)
         while True:
             data = subscriber.Read()
             if data is not None:
@@ -98,10 +110,28 @@ def main(argv=None):
     except KeyboardInterrupt:
         pass
     finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=1)
-        os.unlink(opts.socket)
+        # Don't allow a second SIGTERM to interrupt socket cleanup.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        if server is not None:
+            try:
+                if thread is not None and thread.is_alive():
+                    server.shutdown()
+            finally:
+                server.server_close()
+                if thread is not None:
+                    thread.join(timeout=1)
+        # Only unlink the socket this process created, never a replacement.
+        if socket_stat is not None:
+            try:
+                current = os.lstat(opts.socket)
+            except FileNotFoundError:
+                pass
+            else:
+                if (stat.S_ISSOCK(current.st_mode) and
+                        (current.st_dev, current.st_ino) ==
+                        (socket_stat.st_dev, socket_stat.st_ino)):
+                    os.unlink(opts.socket)
+        print('Read-only observer shutdown completed', flush=True)
 
 
 if __name__ == '__main__':
