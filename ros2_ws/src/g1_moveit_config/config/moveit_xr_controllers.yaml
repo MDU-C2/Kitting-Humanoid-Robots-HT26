@@ -6,7 +6,7 @@ moveit_simple_controller_manager:
     - g1_xr_bridge
   g1_xr_bridge:
     type: FollowJointTrajectory
-    action_ns: inprocess_sim/follow_joint_trajectory
+    action_ns: follow_joint_trajectory
     default: true
     joints:
       - left_shoulder_pitch_joint
