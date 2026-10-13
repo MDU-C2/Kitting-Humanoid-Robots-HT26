@@ -1,0 +1,174 @@
+diff --git a/teleop/robot_control/robot_arm.py b/teleop/robot_control/robot_arm.py
+index 8530375..282381f 100644
+--- a/teleop/robot_control/robot_arm.py
++++ b/teleop/robot_control/robot_arm.py
+@@ -77,7 +77,23 @@ class DataBuffer:
+             self.data = data
+ 
+ class G1_29_ArmController:
+-    def __init__(self, motion_mode = False, simulation_mode = False):
++    def __init__(self, motion_mode = False, simulation_mode = False, *, headless_moveit=False, gravity_fn=None):
++        # G1_HEADLESS_MOVEIT_PATCH_V1. Default XR/Quest behavior is unchanged.
++        if headless_moveit and (not motion_mode or simulation_mode or gravity_fn is None):
++            raise ValueError('Headless physical controller requires motion mode and gravity callback')
++        self.headless_moveit = bool(headless_moveit)
++        self._headless_gravity = gravity_fn
++        self._headless_running = True
++        self._headless_release_at = None
++        self._headless_release_weight = 0.0
++        self._headless_last_target_at = None
++        self._headless_initial_at = None
++        self._headless_target_timeout_s = 0.35
++        # Headless-only accumulated command; stock Quest clipping is unchanged.
++        # Limit position-command lead over measured feedback to prevent runaway.
++        self._headless_command_q = None
++        self._headless_max_command_lead_rad = 0.035
++        self.lowstate_rx_at = None
+         logger_mp.info("Initialize G1_29_ArmController...")
+         self.q_target = np.zeros(14)
+         self.tauff_target = np.zeros(14)
+@@ -143,6 +159,22 @@ class G1_29_ArmController:
+             self.msg.motor_cmd[id].q  = self.all_motor_q[id]
+         logger_mp.info("Lock OK!")
+ 
++        # Headless: initialize BOTH desired joint state and gravity BEFORE publisher begins.
++        # This opt-in branch is not executed by normal Quest/XR teleoperation.
++        if self.headless_moveit:
++            initial_q = self.get_current_dual_arm_q()
++            initial_tau = np.asarray(self._headless_gravity(initial_q), dtype=float)
++            if (initial_q.shape != (14,) or initial_tau.shape != (14,) or
++                    not np.isfinite(initial_q).all() or not np.isfinite(initial_tau).all()):
++                raise RuntimeError('Unsafe initial XR feedback/gravity values')
++            if self.lowstate_rx_at is None or time.monotonic() - self.lowstate_rx_at > 0.15:
++                raise RuntimeError('LowState stale before XR headless publisher startup')
++            self.q_target = initial_q.copy()
++            self._headless_command_q = initial_q.copy()
++            self.tauff_target = initial_tau.copy()
++            self.set_arm_velocity_limit(0.25)
++            self._headless_initial_at = time.monotonic()
++            self._headless_last_target_at = self._headless_initial_at
+         # initialize publish thread
+         self.publish_thread = threading.Thread(target=self._ctrl_motor_state)
+         self.ctrl_lock = threading.Lock()
+@@ -160,6 +192,7 @@ class G1_29_ArmController:
+                     lowstate.motor_state[id].q  = msg.motor_state[id].q
+                     lowstate.motor_state[id].dq = msg.motor_state[id].dq
+                 self.lowstate_buffer.SetData(lowstate)
++                self.lowstate_rx_at = time.monotonic()
+                 self.mode_machine = msg.mode_machine
+                 self.lowstate_sub_ready = True
+             time.sleep(0.002)
+@@ -171,18 +204,65 @@ class G1_29_ArmController:
+         cliped_arm_q_target = current_q + delta / max(motion_scale, 1.0)
+         return cliped_arm_q_target
+ 
++    @staticmethod
++    def _headless_slew_step(previous, target, measured, max_step, max_lead):
++        """Headless only: advance from prior COMMAND, with bounded measured lead.
++
++        Preserve synchronized joint motion through global scaling, then cap
++        absolute command/feedback separation. Never applies to Quest mode.
++        """
++        delta = target - previous
++        scale = max(1.0, float(np.max(np.abs(delta))) / max_step)
++        candidate = previous + delta / scale
++        # Clamp to measured feedback: a stalled joint cannot accumulate an
++        # arbitrarily large queued motor position command.
++        candidate = np.clip(candidate, measured - max_lead, measured + max_lead)
++        # A sudden feedback change must not cause an unbounded command jump.
++        candidate = np.clip(candidate, previous - max_step, previous + max_step)
++        return candidate
++
+     def _ctrl_motor_state(self):
+-        if self.motion_mode:
++        if self.motion_mode and not self.headless_moveit:
+             self.msg.motor_cmd[G1_29_JointIndex.kNotUsedJoint0].q = 1.0;
+ 
+-        while True:
++        while not (self.headless_moveit and not self._headless_running):
+             start_time = time.time()
+ 
++            if self.headless_moveit:
++                now = time.monotonic()
++                # A crashed/lost ROS input MUST NOT leave an old moving target active.
++                # Hold measured q. LowState loss releases control rather than driving blind.
++                if (self.lowstate_rx_at is None or now - self.lowstate_rx_at > 0.15):
++                    if self._headless_release_at is None:
++                        self._headless_release_weight = min(1.0, max(0.0, (now-self._headless_initial_at)/3.0))
++                        self._headless_release_at = now
++                elif (self._headless_release_at is None and
++                      now - self._headless_last_target_at > self._headless_target_timeout_s):
++                    measured_q = self.get_current_dual_arm_q()
++                    with self.ctrl_lock:
++                        self.q_target = measured_q.copy()
++                        self.tauff_target = np.asarray(self._headless_gravity(measured_q), dtype=float).copy()
++                    self._headless_last_target_at = now
++                if self._headless_release_at is None:
++                    weight = min(1.0, max(0.0, (now - self._headless_initial_at) / 3.0))
++                else:
++                    weight = max(0.0, self._headless_release_weight *
++                                 (1.0 - (now - self._headless_release_at) / 2.0))
++                self.msg.motor_cmd[G1_29_JointIndex.kNotUsedJoint0].q = weight
+             with self.ctrl_lock:
+                 arm_q_target     = self.q_target
+                 arm_tauff_target = self.tauff_target
+ 
+-            if self.simulation_mode:
++            if self.headless_moveit:
++                measured_q = self.get_current_dual_arm_q()
++                # Original measured-relative clip prevents a small target from
++                # accumulating; advance from previous published q instead.
++                cliped_arm_q_target = self._headless_slew_step(
++                    self._headless_command_q, arm_q_target, measured_q,
++                    self.arm_velocity_limit * self.control_dt,
++                    self._headless_max_command_lead_rad)
++                self._headless_command_q = cliped_arm_q_target.copy()
++            elif self.simulation_mode:
+                 cliped_arm_q_target = arm_q_target
+             else:
+                 cliped_arm_q_target = self.clip_arm_q_target(arm_q_target, velocity_limit = self.arm_velocity_limit)
+@@ -194,6 +274,8 @@ class G1_29_ArmController:
+ 
+             self.msg.crc = self.crc.Crc(self.msg)
+             self.lowcmd_publisher.Write(self.msg)
++            if self.headless_moveit and self._headless_release_at is not None and weight <= 0.0:
++                self._headless_running = False
+ 
+             current_time = time.time()
+             all_t_elapsed = current_time - start_time
+@@ -204,9 +286,33 @@ class G1_29_ArmController:
+ 
+     def ctrl_dual_arm(self, q_target, tauff_target):
+         '''Set control target values q & tau of the left and right arm motors.'''
++        if self.headless_moveit:
++            q_target = np.asarray(q_target, dtype=float)
++            tauff_target = np.asarray(tauff_target, dtype=float)
++            if (q_target.shape != (14,) or tauff_target.shape != (14,) or
++                    not np.isfinite(q_target).all() or not np.isfinite(tauff_target).all()):
++                raise ValueError('Invalid headless arm target')
++            if self._headless_release_at is not None or not self._headless_running:
++                raise RuntimeError('Headless arm control is releasing/closed')
++            if self.lowstate_rx_at is None or time.monotonic() - self.lowstate_rx_at > 0.15:
++                raise RuntimeError('Headless LowState is stale')
+         with self.ctrl_lock:
+-            self.q_target = q_target
+-            self.tauff_target = tauff_target
++            self.q_target = q_target.copy() if self.headless_moveit else q_target
++            self.tauff_target = tauff_target.copy() if self.headless_moveit else tauff_target
++            if self.headless_moveit:
++                self._headless_last_target_at = time.monotonic()
++
++    def release_headless(self):
++        '''Ramp out arm SDK authority without commanding home or zero targets.'''
++        if not self.headless_moveit:
++            raise RuntimeError('This method is headless only')
++        if self._headless_release_at is None:
++            now = time.monotonic()
++            self._headless_release_weight = min(1.0, max(0.0, (now-self._headless_initial_at)/3.0))
++            self._headless_release_at = now
++        self.publish_thread.join(timeout=4.0)
++        if self.publish_thread.is_alive():
++            raise RuntimeError('XR publishing thread did not finish release')
+ 
+     def get_mode_machine(self):
+         '''Return current dds mode machine.'''
