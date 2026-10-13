@@ -11,7 +11,7 @@ import numpy as np
 
 import g1_pipeline
 from xr_arm_input_mux import BridgeError, Source
-from xr_minimal_sim_overlay import XR_ROOT, patch_main
+from experiments.simulation.xr_minimal_sim_overlay import XR_ROOT, patch_main
 from xr_vr_passthrough_bridge import VrFirstBridge
 from xr_ipc_protocol import PROTOCOL, transact, send_sample
 
@@ -39,7 +39,7 @@ class OriginalXrPreservation(unittest.TestCase):
             patch_main('not original XR code')
 
     def test_hardware_invocation_refused_before_sdk_import(self):
-        script = Path(__file__).with_name('xr_minimal_sim_overlay.py')
+        script = Path(__file__).parent / 'experiments' / 'simulation' / 'xr_minimal_sim_overlay.py'
         for flags in ([], ['--motion', '--arm', 'G1_29', '--ee', 'inspire_ftp'],
                       ['--g1-bridge-minimal-sim', '--motion', '--arm', 'G1_29', '--ee', 'inspire_ftp']):
             proc = subprocess.run([sys.executable, str(script), *flags],
@@ -48,7 +48,7 @@ class OriginalXrPreservation(unittest.TestCase):
             self.assertIn('HARDWARE BLOCKED', proc.stdout + proc.stderr)
 
     def test_simulator_requires_isolation(self):
-        script = Path(__file__).with_name('xr_minimal_sim_overlay.py')
+        script = Path(__file__).parent / 'experiments' / 'simulation' / 'xr_minimal_sim_overlay.py'
         env = os.environ.copy()
         env.pop('G1_XR_SIM_ACK', None)
         proc = subprocess.run([sys.executable, str(script), '--g1-bridge-minimal-sim',

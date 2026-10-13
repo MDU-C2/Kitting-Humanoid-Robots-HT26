@@ -14,7 +14,7 @@ from pathlib import Path
 import sys
 
 XR_ROOT = Path(os.environ.get('G1_XR_SOURCE_ROOT', '/workspace/src/xr_teleoperate'))
-BRIDGE_ROOT = Path(__file__).resolve().parent
+BRIDGE_ROOT = Path(__file__).resolve().parents[2]
 
 
 def replace_once(source, before, after, label):
@@ -54,6 +54,24 @@ def patch_main(source):
         "            logger_mp.warning('Minimal XR adapter active: ISOLATED SIMULATOR ONLY; '\n"
         "                              'original XR startup and FTP hand controller unchanged')\n"
         "        # end-effector\n", 'start adapter after original controller')
+    # Keep XR's original VR IK unchanged, but do not require a VR pose
+    # when MoveIt/HOLD owns the arm targets. XR remains sole output controller.
+    ik_block = (
+        '            # solve ik using motor data and wrist pose, then use ik results to control arms.\n'
+        '            time_ik_start = time.time()\n'
+        '            sol_q, sol_tauff  = arm_ik.solve_ik(tele_data.left_wrist_pose, tele_data.right_wrist_pose, current_lr_arm_q, current_lr_arm_dq)\n'
+        '            time_ik_end = time.time()\n'
+        '            logger_mp.debug(f"ik:\\t{round(time_ik_end - time_ik_start, 6)}")\n'
+    )
+    after_ik = (
+        '            # For MoveIt/HOLD do not solve VR IK or depend on VR tracking.\n'
+        '            if g1_bridge is not None and g1_bridge.mux.source.value != "vr":\n'
+        '                sol_q = current_lr_arm_q.copy()\n'
+        '                sol_tauff = g1_bridge._gravity(sol_q)\n'
+        '            else:\n'
+        + ''.join('    ' + line if line.strip() else line for line in ik_block.splitlines(keepends=True))
+    )
+    source = replace_once(source, ik_block, after_ik, 'XR IK remains VR-only')
     source = replace_once(
         source,
         '            arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)\n',

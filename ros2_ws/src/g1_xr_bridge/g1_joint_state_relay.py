@@ -14,8 +14,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
 from g1_state_contract import JOINT_NAMES_29
-from xr_inprocess_bridge import SIM_SOCKET
-from g1_readonly_observer import SOCKET as OBSERVER_SOCKET
+from g1_ipc_paths import SIM_SOCKET, OBSERVER_SOCKET
 
 
 def read_state(socket_path, mode):

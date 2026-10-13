@@ -4,6 +4,14 @@ Goal sampling remains on ROS side; each sample is delivered to a separate
 Micromamba XR process, which computes ORIGINAL XR RNEA and acknowledges.
 No DDS/SDK/motor control, no measured positions, no MoveIt production endpoint.
 """
+# Standalone tools live two levels below the shared bridge contracts.
+# Keep ROS and XR Python environments separate; only expose pure bridge modules.
+from pathlib import Path
+import sys
+BRIDGE_ROOT = Path(__file__).resolve().parents[2]
+if str(BRIDGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(BRIDGE_ROOT))
+
 import time
 from threading import Lock
 
@@ -16,6 +24,7 @@ from rclpy.node import Node
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
 
+from xr_moveit_goal_conversion import convert_goal
 from xr_arm_trajectory import ARM_JOINT_NAMES, ArmCommandRouter, Trajectory, TrajectoryError, Waypoint
 from xr_ipc_protocol import IpcError, ping, send_sample
 from offline_feedback_contract import synthetic_arm_feedback
@@ -27,45 +36,6 @@ def read_feedback_status():
     return None  # no XR in-process status in the plain offline IPC receiver
 
 
-def convert_goal(msg, baseline=None):
-    """Validate 14-arm goal, or complete one 7-arm goal from fresh XR state.
-
-    A single-arm goal never resets or overwrites the other arm with zeros.
-    Baseline is sourced from the XR receiver, NOT from arbitrary user input.
-    """
-    if msg.header.stamp.sec != 0 or msg.header.stamp.nanosec != 0:
-        raise TrajectoryError('Offline test only accepts zero trajectory header timestamp')
-    names = tuple(msg.joint_names)
-    is_single_arm = (len(names) == 7 and len(set(names)) == 7 and
-                     (set(names) == set(ARM_JOINT_NAMES[:7]) or
-                      set(names) == set(ARM_JOINT_NAMES[7:])))
-    if is_single_arm:
-        if baseline is None:
-            raise TrajectoryError('Single-arm goal requires fresh XR measured baseline')
-        base_q = np.asarray(baseline, dtype=float)
-        if base_q.shape != (14,) or not np.isfinite(base_q).all():
-            raise TrajectoryError('Invalid measured XR baseline for single-arm goal')
-    points = []
-    for p in msg.points:
-        seconds = float(p.time_from_start.sec) + p.time_from_start.nanosec * 1e-9
-        positions = list(p.positions)
-        velocities = list(p.velocities) if p.velocities else None
-        if is_single_arm:
-            if len(positions) != 7 or (velocities is not None and len(velocities) != 7):
-                raise TrajectoryError('Single-arm points require 7 positions/velocities')
-            expanded_q = base_q.copy()
-            expanded_v = np.zeros(14) if velocities is not None else None
-            for i, joint in enumerate(names):
-                idx = ARM_JOINT_NAMES.index(joint)
-                expanded_q[idx] = positions[i]
-                if expanded_v is not None:
-                    expanded_v[idx] = velocities[i]
-            positions, velocities = expanded_q, expanded_v
-        points.append(Waypoint(seconds, positions, velocities))
-    traj = Trajectory(ARM_JOINT_NAMES if is_single_arm else names, points)
-    if len(points) < 2 or points[0].time_from_start != 0.0 or traj.duration > 60.0:
-        raise TrajectoryError('Offline test requires 2+ points, t0=0, duration <= 60 seconds')
-    return traj
 
 
 class OfflineIpcServer(Node):

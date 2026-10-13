@@ -17,6 +17,8 @@ import sys
 import time
 
 HERE = Path(__file__).resolve().parent
+OFFLINE_DIR = HERE / 'experiments' / 'offline'
+SIMULATION_DIR = HERE / 'experiments' / 'simulation'
 SRC = HERE.parent
 XR = SRC / 'xr_teleoperate'
 XR_PY = Path('/opt/mamba/envs/xr/bin/python')
@@ -65,7 +67,7 @@ def build_commands(args):
     commands = []
     if args.mode == 'offline':
         commands.append(('XR offline Pinocchio/IK, zero DDS',
-                         [str(XR_PY), str(HERE/'xr_inprocess_offline_harness.py')], xr_env))
+                         [str(XR_PY), str(OFFLINE_DIR/'xr_inprocess_offline_harness.py')], xr_env))
     elif args.mode in ('observe', 'hardware-preflight'):
         commands.append(('G1 read-only LowState observer',
                          [str(XR_PY), str(HERE/'g1_readonly_observer.py'),
@@ -76,7 +78,7 @@ def build_commands(args):
                           else 'xr_integrated_sim_overlay.py')
         adapter_flag = ('--g1-bridge-minimal-sim' if args.xr_adapter == 'minimal'
                         else '--g1-bridge-sim')
-        command = [str(XR_PY), str(HERE/adapter_script),
+        command = [str(XR_PY), str(SIMULATION_DIR/adapter_script),
                    adapter_flag, '--sim', '--motion', '--arm', 'G1_29',
                    '--ee', 'inspire_ftp', '--network-interface', args.sim_interface,
                    '--img-server-ip', args.image_server_ip]
@@ -103,7 +105,7 @@ def build_commands(args):
                          [str(ROS_PY), str(HERE/'g1_hardware_preflight.py'), '--watch'], env))
     if sim:
         commands.append(('MoveIt -> XR offline/sim FollowJointTrajectory action',
-                         command_for_ros([str(ROS_PY), str(HERE/'ros2_trajectory_inprocess_sim.py')]), env))
+                         command_for_ros([str(ROS_PY), str(OFFLINE_DIR/'ros2_trajectory_inprocess_sim.py')]), env))
     commands.append(('ROS measured/synthetic joint-state relay',
                      command_for_ros([str(ROS_PY), str(HERE/'g1_joint_state_relay.py'),
                                       '--mode', 'observe' if args.mode == 'hardware-preflight' else args.mode]), env))
@@ -136,58 +138,84 @@ def preflight(args):
 
 
 def supervise(commands):
+    """Supervise pipeline children and shut down ROS consumers before producers.
+
+    This supervisor has NO actuator interface. A child crash is always reported,
+    including when it happens during an operator-requested shutdown.
+    """
     processes = []
     shutting_down = False
+    interruption = None
 
-    def stop_all(*_):
-        nonlocal shutting_down
-        if shutting_down:
-            return
+    def request_stop(signum, _frame):
+        nonlocal shutting_down, interruption
         shutting_down = True
-        print('\nStopping pipeline children...', flush=True)
-        for _name, p in reversed(processes):
-            if p.poll() is None:
-                try:
-                    os.killpg(p.pid, signal.SIGINT)
-                except ProcessLookupError:
-                    pass
+        interruption = signum
 
-    signal.signal(signal.SIGINT, stop_all)
-    signal.signal(signal.SIGTERM, stop_all)
+    def terminate_group(name, process, sig, wait_seconds):
+        if process.poll() is not None:
+            return process.returncode
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            pass
+        try:
+            return process.wait(timeout=wait_seconds)
+        except subprocess.TimeoutExpired:
+            return None
+
+    old_int = signal.signal(signal.SIGINT, request_stop)
+    old_term = signal.signal(signal.SIGTERM, request_stop)
+    error = None
+    statuses = []
     try:
         for name, cmd, env in commands:
             if shutting_down:
                 break
             print('Starting: ' + name, flush=True)
-            p = subprocess.Popen(cmd, env=env, cwd=str(HERE), start_new_session=True)
-            processes.append((name, p))
+            process = subprocess.Popen(cmd, env=env, cwd=str(HERE), start_new_session=True)
+            processes.append((name, process))
             time.sleep(0.15)
-            if p.poll() is not None:
-                raise RuntimeError(f'{name} exited immediately with code {p.returncode}')
+            if process.poll() is not None:
+                raise RuntimeError(f'{name} exited immediately with code {process.returncode}')
         while not shutting_down:
-            for name, p in processes:
-                status = p.poll()
+            for name, process in processes:
+                status = process.poll()
                 if status is not None:
-                    raise RuntimeError(f'{name} exited with code {status}')
+                    raise RuntimeError(f'{name} exited unexpectedly with code {status}')
             time.sleep(0.2)
+    except BaseException as exc:
+        error = exc
     finally:
-        stop_all()
-        for _, p in reversed(processes):
-            try:
-                p.wait(timeout=4)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(p.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-                try:
-                    p.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(p.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    p.wait()
+        # Planning/action nodes must not outlive their state sources. Shut down
+        # the launch group first; only then stop observers/relays. This reduces
+        # cross-process teardown races; it does not guarantee MoveIt cannot crash.
+        print('Stopping pipeline children (MoveIt before feedback sources)...', flush=True)
+        consumers = [(n, p) for n, p in reversed(processes)
+                     if n.startswith('MoveIt 2')]
+        producers = [(n, p) for n, p in reversed(processes)
+                     if not n.startswith('MoveIt 2')]
+        for name, process in consumers + producers:
+            status = terminate_group(name, process, signal.SIGINT, 6.0)
+            if status is None:
+                status = terminate_group(name, process, signal.SIGTERM, 3.0)
+            if status is None:
+                status = terminate_group(name, process, signal.SIGKILL, 2.0)
+            if status is None:
+                status = process.wait()
+            statuses.append((name, status))
+            print(f'PIPELINE CHILD EXIT: {name}: {status}', flush=True)
+        signal.signal(signal.SIGINT, old_int)
+        signal.signal(signal.SIGTERM, old_term)
+    # SIGINT/SIGTERM exits are expected only if the supervisor requested stop.
+    # A SIGSEGV (-11), SIGABRT (-6), or SIGKILL (-9) is never an OK shutdown.
+    crashes = [(name, status) for name, status in statuses if status in (-11, -6, -9, 139, 134, 137)]
+    if crashes:
+        raise RuntimeError(f'ROS pipeline child crashed during shutdown: {crashes}')
+    if error is not None:
+        raise error
+    if interruption is not None:
+        print(f'PIPELINE SHUTDOWN COMPLETE after signal {interruption}', flush=True)
 
 
 def get_args(argv=None):

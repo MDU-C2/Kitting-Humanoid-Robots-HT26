@@ -8,4 +8,4 @@ if [[ ! -x "$PYTHON" ]]; then
   exit 1
 fi
 cd "$ROOT"
-exec env -u PYTHONPATH -u LD_LIBRARY_PATH "$PYTHON" "$ROOT/xr_inprocess_offline_harness.py"
+exec env -u PYTHONPATH -u LD_LIBRARY_PATH "$PYTHON" "$ROOT/experiments/offline/xr_inprocess_offline_harness.py"

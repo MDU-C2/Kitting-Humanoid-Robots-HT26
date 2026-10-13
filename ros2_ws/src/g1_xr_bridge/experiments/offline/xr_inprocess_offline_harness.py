@@ -10,6 +10,15 @@ from pathlib import Path
 
 import numpy as np
 
+# Standalone tools live two levels below the shared bridge contracts.
+# Keep ROS and XR Python environments separate; only expose pure bridge modules.
+from pathlib import Path
+import sys
+BRIDGE_ROOT = Path(__file__).resolve().parents[2]
+if str(BRIDGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(BRIDGE_ROOT))
+
+
 from xr_inprocess_bridge import XrInProcessBridge
 
 

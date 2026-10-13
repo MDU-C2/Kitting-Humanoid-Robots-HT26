@@ -21,7 +21,7 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 from ament_index_python.packages import get_package_share_directory
 
 from xr_arm_trajectory import ARM_JOINT_NAMES, TrajectoryError
-from ros2_trajectory_xr_ipc_dry_run import convert_goal
+from xr_moveit_goal_conversion import convert_goal
 from xr_ipc_protocol import transact
 
 ACTION = '/g1_xr_bridge/follow_joint_trajectory'

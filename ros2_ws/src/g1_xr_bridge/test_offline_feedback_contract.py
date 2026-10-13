@@ -44,7 +44,7 @@ class OfflineSyntheticFeedbackTests(unittest.TestCase):
 
     def test_original_bridge_does_not_create_actuation(self):
         from pathlib import Path
-        source = Path(__file__).with_name('ros2_trajectory_inprocess_sim.py').read_text()
+        source = (Path(__file__).parent / 'experiments' / 'offline' / 'ros2_trajectory_inprocess_sim.py').read_text()
         self.assertIn("base.read_feedback_status = lambda: transact({'kind': 'status'}, SIM_SOCKET)", source)
         self.assertNotIn('unitree_sdk2py', source)
 

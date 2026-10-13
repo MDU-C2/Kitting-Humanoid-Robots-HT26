@@ -9,7 +9,7 @@ if [[ ! -x "${XR_PYTHON}" ]]; then
 fi
 cd "${ROOT}"
 if [[ ${1:-} == --verify ]]; then
-  exec env -u PYTHONPATH -u LD_LIBRARY_PATH "${XR_PYTHON}" "${ROOT}/xr_integrated_sim_overlay.py" --verify
+  exec env -u PYTHONPATH -u LD_LIBRARY_PATH "${XR_PYTHON}" "${ROOT}/experiments/simulation/xr_integrated_sim_overlay.py" --verify
 fi
 # Explicit gated simulation invocation, never a physical bridge launcher.
-exec env -u PYTHONPATH -u LD_LIBRARY_PATH "${XR_PYTHON}" "${ROOT}/xr_integrated_sim_overlay.py" "$@"
+exec env -u PYTHONPATH -u LD_LIBRARY_PATH "${XR_PYTHON}" "${ROOT}/experiments/simulation/xr_integrated_sim_overlay.py" "$@"

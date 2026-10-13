@@ -10,7 +10,7 @@ import sys
 
 
 XR_ROOT = Path(os.environ.get('G1_XR_SOURCE_ROOT', '/workspace/src/xr_teleoperate'))
-BRIDGE_ROOT = Path(__file__).resolve().parent
+BRIDGE_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _replace_once(text, before, after, label):

@@ -10,6 +10,7 @@ import numpy as np
 import g1_pipeline
 from g1_readonly_observer import StateCache
 from g1_state_contract import ARM_INDICES, JOINT_NAMES_29
+from xr_moveit_goal_conversion import convert_goal
 from xr_arm_trajectory import ARM_JOINT_NAMES, Trajectory, TrajectoryError, Waypoint
 from xr_motion_guard import XrMotionGuard
 
@@ -83,18 +84,8 @@ class SimWatchdogTests(unittest.TestCase):
 
 
 class GoalExpansionTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        # Extract the PURE validation function from ROS module; cannot import
-        # rclpy in this offline test environment. No function monkeypatching.
-        p = Path(__file__).with_name('ros2_trajectory_xr_ipc_dry_run.py')
-        tree = ast.parse(p.read_text())
-        func = next(x for x in tree.body if isinstance(x, ast.FunctionDef) and x.name == 'convert_goal')
-        ns = {'Trajectory': Trajectory, 'Waypoint': Waypoint, 'ARM_JOINT_NAMES': ARM_JOINT_NAMES,
-              'TrajectoryError': TrajectoryError, 'np': np}
-        exec(compile(ast.fix_missing_locations(ast.Module(body=[func], type_ignores=[])),
-                     '<offline ROS action validation>', 'exec'), ns)
-        cls.convert = staticmethod(ns['convert_goal'])
+    # Directly exercise the pure shared converter (no ROS imports).
+    convert = staticmethod(convert_goal)
 
     def goal(self, joints, first, last):
         stamp = SimpleNamespace(sec=0, nanosec=0)

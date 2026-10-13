@@ -20,7 +20,7 @@ explicitly and only after its target is close to measured joints.
 cd /workspace
 python3 -m unittest discover -s src/g1_xr_bridge -p 'test_*.py' -v
 G1_XR_SOURCE_ROOT=/workspace/src/xr_teleoperate \
-  /opt/mamba/envs/xr/bin/python src/g1_xr_bridge/xr_minimal_sim_overlay.py --verify
+  /opt/mamba/envs/xr/bin/python src/g1_xr_bridge/experiments/simulation/xr_minimal_sim_overlay.py --verify
 python3 src/g1_xr_bridge/g1_pipeline.py --mode xr-sim --xr-adapter minimal \
   --isolation-ack ISOLATED_SIMULATOR --sim-interface sim0 --print-plan
 ```

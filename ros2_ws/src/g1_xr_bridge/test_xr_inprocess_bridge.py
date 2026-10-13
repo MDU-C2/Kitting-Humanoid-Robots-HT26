@@ -8,7 +8,7 @@ import numpy as np
 from xr_arm_input_mux import BridgeError, Source
 from xr_inprocess_bridge import XrInProcessBridge
 from xr_ipc_protocol import transact, send_sample, IpcError
-from xr_runtime_overlay import patch_source
+from experiments.simulation.xr_runtime_overlay import patch_source
 
 
 class InProcessTests(unittest.TestCase):

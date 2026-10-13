@@ -1,5 +1,13 @@
 """Offline-only ROS trajectory action pointed at XR's in-process SIM bridge."""
-import ros2_trajectory_xr_ipc_dry_run as base
+from pathlib import Path
+import sys
+BRIDGE_ROOT = Path(__file__).resolve().parents[2]
+if str(BRIDGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(BRIDGE_ROOT))
+if __package__:
+    from . import ros2_trajectory_xr_ipc_dry_run as base
+else:
+    import ros2_trajectory_xr_ipc_dry_run as base
 from xr_ipc_protocol import ping, send_sample, transact
 from xr_inprocess_bridge import SIM_SOCKET
 

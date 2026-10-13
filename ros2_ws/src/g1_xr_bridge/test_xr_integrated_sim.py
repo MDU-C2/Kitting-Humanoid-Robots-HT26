@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-import xr_integrated_sim_overlay as overlay
+from experiments.simulation import xr_integrated_sim_overlay as overlay
 from xr_sim_startup_patch import patch_controller_source, check_feedback_fresh
 
 

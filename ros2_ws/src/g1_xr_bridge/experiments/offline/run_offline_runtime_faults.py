@@ -4,7 +4,7 @@
 Run INSIDE the project's ROS Humble Docker, with all other G1 pipelines stopped:
   source /opt/ros/humble/setup.bash
   source /workspace/install/setup.bash
-  python3 /workspace/src/g1_xr_bridge/run_offline_runtime_faults.py
+  python3 /workspace/src/g1_xr_bridge/experiments/offline/run_offline_runtime_faults.py
 
 Starts exclusively owned offline XR + action processes (no MoveIt, no G1 DDS),
 checks cancellation/HOLD, concurrent-goal rejection, XR child death/abort,
@@ -29,11 +29,16 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from trajectory_msgs.msg import JointTrajectoryPoint
 
+BRIDGE_ROOT = Path(__file__).resolve().parents[2]
+if str(BRIDGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(BRIDGE_ROOT))
+
 from xr_arm_trajectory import ARM_JOINT_NAMES
 from xr_inprocess_bridge import SIM_SOCKET
 from xr_ipc_protocol import IpcError, ping, transact
 
-HERE = Path(__file__).resolve().parent
+HERE = BRIDGE_ROOT
+OFFLINE_DIR = Path(__file__).resolve().parent
 PIPELINE = HERE / 'g1_pipeline.py'
 ACTION = '/g1_xr_bridge/inprocess_sim/follow_joint_trajectory'
 
@@ -108,8 +113,8 @@ def scenario(name, check, log_directory):
     xr_env['G1_XR_SOURCE_ROOT'] = str(HERE.parent / 'xr_teleoperate')
     ros_env = os.environ.copy()
     ros_env.pop('G1_XR_SIM_ACK', None)
-    xr_command = ['/opt/mamba/envs/xr/bin/python', str(HERE / 'xr_inprocess_offline_harness.py')]
-    ros_command = ['/usr/bin/python3', str(HERE / 'ros2_trajectory_inprocess_sim.py')]
+    xr_command = ['/opt/mamba/envs/xr/bin/python', str(OFFLINE_DIR / 'xr_inprocess_offline_harness.py')]
+    ros_command = ['/usr/bin/python3', str(OFFLINE_DIR / 'ros2_trajectory_inprocess_sim.py')]
     processes = []
     owned_socket_identity = None
     try:
