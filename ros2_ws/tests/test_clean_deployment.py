@@ -1,6 +1,8 @@
 """Non-actuating contract tests for the minimal deployment layout."""
 import ast
 import importlib.util
+import os
+import tempfile
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -88,14 +90,58 @@ class CleanDeploymentTests(unittest.TestCase):
         self.assertIn('left_shoulder_pitch_joint', all_joint_names)
         self.assertIn('right_wrist_yaw_joint', all_joint_names)
 
-    def test_scripts_cannot_destroy_running_container(self):
+    def test_start_never_stops_or_removes_container(self):
         script = (ROOT / 'scripts/start.sh').read_text()
-        self.assertNotIn('docker rm -f', script)
-        self.assertNotIn('docker stop ', script)
+        self.assertNotIn('docker rm', script)
+        self.assertNotIn('docker stop', script)
         self.assertNotIn('docker run --rm', script)
         self.assertIn('sleep infinity', script)
-        for name in ('install.sh', 'start.sh', 'run_physical.sh'):
+        self.assertIn('docker exec -it "$NAME" bash', script)
+        self.assertNotIn('CYCLONEDDS_URI', script)
+        self.assertNotIn('G1_ROBOT_IP', script)
+        for name in ('install.sh', 'start.sh', 'run_g1.sh'):
             subprocess.run(['bash', '-n', str(ROOT / 'scripts' / name)], check=True)
+
+    def test_start_reattaches_without_destroying_container(self):
+        # Simulate Docker CLI responses. No real Docker or robot involvement.
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / 'docker'
+            fake.write_text("""#!/bin/bash
+printf '%s\\n' "$*" >> "$DOCKER_MOCK_LOG"
+case "$1 $2" in
+  'ps --format') exit 0 ;;
+  'container inspect') exit 0 ;;
+  'inspect -f') echo true; exit 0 ;;
+  'exec -it') echo 'MOCK ATTACHED'; exit 0 ;;
+esac
+echo "Unexpected Docker call: $*" >&2
+exit 94
+""")
+            fake.chmod(0o755)
+            log = Path(tmp) / 'docker.log'
+            env = os.environ.copy()
+            env['DOCKER_MOCK_LOG'] = str(log)
+            env['PATH'] = tmp + os.pathsep + env.get('PATH', '')
+            result = subprocess.run(['bash', str(ROOT / 'scripts/start.sh')],
+                                    capture_output=True, text=True, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('Reusing existing container', result.stdout)
+            calls = log.read_text().splitlines()
+            self.assertTrue(any(x.startswith('exec -it g1_xr_clean_humble') for x in calls))
+            self.assertFalse(any(x.startswith(('stop ', 'rm ', 'run ', 'start ')) for x in calls))
+
+    def test_physical_launch_is_separate_and_read_only_preflight_required(self):
+        script = (ROOT / 'scripts/run_g1.sh').read_text()
+        self.assertFalse((ROOT / 'scripts/run_physical.sh').exists())
+        self.assertIn('CYCLONEDDS_URI', script)
+        self.assertIn('check_g1_dds.py', script)
+        self.assertIn('G1_REGULAR_MODE_SUPERVISED', script)
+        self.assertIn('launch_g1_moveit_xr.sh', script)
+        self.assertIn('READ-ONLY CHECK PASSED', script)
+        preflight = (ROOT / 'scripts/check_g1_dds.py').read_text()
+        self.assertIn("ChannelSubscriber('rt/lowstate'", preflight)
+        self.assertNotIn('ChannelPublisher', preflight)
+        ast.parse(preflight)
 
 if __name__ == '__main__':
     unittest.main()

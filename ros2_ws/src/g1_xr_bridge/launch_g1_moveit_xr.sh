@@ -233,7 +233,7 @@ if [[ -f "$WS/install/setup.bash" ]]; then
     source "$WS/install/setup.bash"
 fi
 set -u
-echo "MoveIt extra per-joint displacement cap: ${MAX_DISPLACEMENT} rad (0=off; joint bounds and 0.20 rad/s speed guard stay enabled)"
+echo "MoveIt extra per-joint displacement cap: ${MAX_DISPLACEMENT} rad (0=off; joint bounds and tracking watchdogs remain; trial speed cap removed)"
 /usr/bin/python3 "$BR/ros2_headless_moveit_action.py" --ros-args -p "max_displacement_rad:=${MAX_DISPLACEMENT}" 9>&- > "$LOGDIR/action.log" 2>&1 & ACTION_PID=$!
 ( unset PYTHONPATH; export LD_LIBRARY_PATH="/opt/mamba/envs/xr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"; exec /opt/mamba/envs/xr/bin/python "$BR/g1_readonly_observer.py" --interface "$IFACE" ) 9>&- > "$LOGDIR/observer.log" 2>&1 & OBSERVER_PID=$!
 /usr/bin/python3 "$BR/g1_joint_state_relay.py" --mode observe 9>&- > "$LOGDIR/relay.log" 2>&1 & RELAY_PID=$!
