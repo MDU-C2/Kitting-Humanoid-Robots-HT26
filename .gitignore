@@ -19,3 +19,28 @@ ros2_ws/log/
 
 # External ROS 2 dependencies
 ros2_ws/src/unitree_ros2/
+
+# Python cache (safe to regenerate)
+__pycache__/
+*.py[cod]
+
+# Third-party repositories restored through ros2.repos / docker/import_dependencies.sh
+# These retain their own Git histories and must not be committed as parent gitlinks.
+/ros2_ws/src/xr_teleoperate/
+/ros2_ws/src/unitree_sdk2_python/
+
+# Runtime logs and recordings: keep locally or archive them outside the repo
+/ros2_ws/g1_headless_logs/
+/ros2_ws/g1_validation_*/
+/ros2_ws/g1_xr_remaining_*/
+/ros2_ws/rosbag2_*/
+
+# Generated handoff / packaging artifacts (not canonical source)
+/g1_project_handoff_*.zip
+/g1_xr_control_sources.tar.gz
+/ros2_ws/g1_launcher_failure.tar.gz
+/ros2_ws/src/g1_xr_bridge/g1_headless_moveit_candidate.zip
+/ros2_ws/src/g1_xr_bridge/g1_repro_launcher.zip
+
+# One-off backup snapshots (do not remove tracked source)
+*.bak
