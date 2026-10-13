@@ -26,6 +26,13 @@ class SimulationLayoutTests(unittest.TestCase):
         script = (HERE / 'run_xr_integrated_sim.sh').read_text()
         self.assertIn('experiments/simulation/xr_integrated_sim_overlay.py', script)
 
+    def test_vr_passthrough_is_simulation_only(self):
+        sim_dir = Path(__file__).parent / 'experiments' / 'simulation'
+        self.assertTrue((sim_dir / 'xr_vr_passthrough_bridge.py').is_file())
+        self.assertFalse((Path(__file__).parent / 'xr_vr_passthrough_bridge.py').exists())
+        minimal = (sim_dir / 'xr_minimal_sim_overlay.py').read_text(encoding='utf-8')
+        self.assertIn('from experiments.simulation.xr_vr_passthrough_bridge import VrFirstBridge', minimal)
+
     def test_physical_headless_runtime_does_not_depend_on_sim(self):
         for name in ('xr_headless_moveit.py', 'ros2_headless_moveit_action.py',
                      'g1_readonly_observer.py', 'g1_joint_state_relay.py'):

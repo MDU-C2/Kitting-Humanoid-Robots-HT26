@@ -12,7 +12,7 @@ import numpy as np
 import g1_pipeline
 from xr_arm_input_mux import BridgeError, Source
 from experiments.simulation.xr_minimal_sim_overlay import XR_ROOT, patch_main
-from xr_vr_passthrough_bridge import VrFirstBridge
+from experiments.simulation.xr_vr_passthrough_bridge import VrFirstBridge
 from xr_ipc_protocol import PROTOCOL, transact, send_sample
 
 

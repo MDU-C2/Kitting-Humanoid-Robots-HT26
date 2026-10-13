@@ -48,7 +48,7 @@ def patch_main(source):
     source = replace_once(
         source, '        # end-effector\n',
         "        if args.g1_bridge_minimal_sim:\n"
-        "            from xr_vr_passthrough_bridge import VrFirstBridge\n"
+        "            from experiments.simulation.xr_vr_passthrough_bridge import VrFirstBridge\n"
         "            g1_bridge = VrFirstBridge(arm_ik)\n"
         "            g1_bridge.start()\n"
         "            logger_mp.warning('Minimal XR adapter active: ISOLATED SIMULATOR ONLY; '\n"

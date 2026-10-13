@@ -11,7 +11,7 @@ import numpy as np
 
 from xr_arm_input_mux import BridgeError, Source, XrArmInputMux
 from xr_ipc_protocol import IpcError, send_sample, transact
-from xr_vr_passthrough_bridge import VrFirstBridge
+from experiments.simulation.xr_vr_passthrough_bridge import VrFirstBridge
 
 
 class DeterministicHandoverTests(unittest.TestCase):
