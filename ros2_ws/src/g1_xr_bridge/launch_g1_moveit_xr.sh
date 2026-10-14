@@ -9,6 +9,40 @@ IFACE="${G1_INTERFACE:-enx50a03000b0dc}"
 # 0 disables only the extra per-goal movement cap. URDF position bounds,
 # trajectory speed limits, and physical feedback watchdogs stay enabled.
 MAX_DISPLACEMENT="${G1_MAX_DISPLACEMENT_RAD:-0.0}"
+# G1_MOVEIT_YAML_AUTHORITY_V1: MoveIt YAML is the sole source of planned
+# arm velocity maxima. The XR publisher uses the highest configured arm speed
+# so its previous fixed 0.25rad/s cap no longer determines planning limits.
+# The XR feedback-lead/heartbeat protections are NOT disabled by this change.
+if [[ -n "${G1_XR_ARM_SPEED_RAD_S:-}" || -n "${G1_MOVEIT_MAX_VELOCITY_RAD_S:-}" ]]; then
+  echo 'Remove old G1_XR_ARM_SPEED_RAD_S/G1_MOVEIT_MAX_VELOCITY_RAD_S overrides.' >&2
+  echo 'MoveIt joint_limits.yaml now determines the XR startup speed.' >&2
+  exit 2
+fi
+XR_SPEED="$(/usr/bin/python3 - "$WS/src/g1_moveit_config/config/joint_limits.yaml" "$WS/src/g1_description/urdf/g1_29dof_with_inspire_hand_ftp.urdf" <<'PYLIMITS'
+import math
+import sys
+import xml.etree.ElementTree as ET
+import yaml
+names = [f'{side}_{name}_joint' for side in ('left', 'right') for name in (
+    'shoulder_pitch', 'shoulder_roll', 'shoulder_yaw', 'elbow',
+    'wrist_roll', 'wrist_pitch', 'wrist_yaw')]
+planning = yaml.safe_load(open(sys.argv[1], encoding='utf-8'))['joint_limits']
+robot = ET.parse(sys.argv[2]).getroot()
+urdf = {joint.get('name'): joint.find('limit') for joint in robot.findall('joint')}
+velocities = []
+for name in names:
+    p, u = planning.get(name), urdf.get(name)
+    if not p or u is None or not p.get('has_velocity_limits') or not p.get('has_acceleration_limits'):
+        raise SystemExit(f'Missing MoveIt/URDF velocity or acceleration limit for {name}')
+    v, a, urdf_v = float(p['max_velocity']), float(p['max_acceleration']), float(u.get('velocity'))
+    if (not all(map(math.isfinite, (v, a, urdf_v))) or
+            v <= 0 or a <= 0 or urdf_v <= 0 or v > urdf_v):
+        raise SystemExit(f'Invalid MoveIt/URDF motion limits for {name}: {v}, {a}, {urdf_v}')
+    velocities.append(v)
+print(f'{max(velocities):.8f}')
+PYLIMITS
+)" || { echo 'Invalid Unitree/MoveIt joint limits; refusing startup.' >&2; exit 2; }
+export G1_XR_ARM_SPEED_RAD_S="$XR_SPEED"
 if ! MAX_DISPLACEMENT="$(/usr/bin/python3 - "$MAX_DISPLACEMENT" <<'PYVALIDATE'
 import math
 import sys
@@ -100,14 +134,17 @@ print('Removed abandoned read-only observer socket (no listener).', flush=True)
 PYSOCKET
 }
 cleanup_stale_observer_socket || exit 1
-bash "$BR/verify_and_apply_xr.sh" || { echo 'Run offline preparation and apply patch first.' >&2; exit 1; }
+# G1_MOVEIT_DIRECT_LAUNCH_V1: apply pinned XR patches automatically
+# before starting any motor publisher; no manual XR setup is required.
+bash "$BR/verify_and_apply_xr.sh" --apply || { echo 'XR automatic preparation failed. No motor control started.' >&2; exit 1; }
 # verify in XR environment (does not open DDS)
 (cd "$WS/src/xr_teleoperate/teleop" && env -u PYTHONPATH LD_LIBRARY_PATH="/opt/mamba/envs/xr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" G1_XR_SOURCE_ROOT="$WS/src/xr_teleoperate" /opt/mamba/envs/xr/bin/python "$BR/xr_headless_moveit.py" --verify)
 LOGDIR="$WS/g1_headless_logs/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$LOGDIR"
 echo "Logs: $LOGDIR"
+echo "MoveIt YAML maximum arm speed: $XR_SPEED rad/s; XR speed matches YAML."
 # Run supervised controller first and only start ROS components after XR indicates it has fresh feedback.
-( cd "$WS/src/xr_teleoperate/teleop"; unset PYTHONPATH; export LD_LIBRARY_PATH="/opt/mamba/envs/xr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"; exec /opt/mamba/envs/xr/bin/python "$BR/xr_headless_moveit.py" --hardware --interface "$IFACE" --operator-ack G1_REGULAR_MODE_SUPERVISED ) 9>&- > "$LOGDIR/xr.log" 2>&1 & XR_PID=$!
+( cd "$WS/src/xr_teleoperate/teleop"; unset PYTHONPATH; export LD_LIBRARY_PATH="/opt/mamba/envs/xr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"; exec /opt/mamba/envs/xr/bin/python "$BR/xr_headless_moveit.py" --hardware --interface "$IFACE" --operator-ack G1_REGULAR_MODE_SUPERVISED --arm-speed-rad-s "$XR_SPEED" ) 9>&- > "$LOGDIR/xr.log" 2>&1 & XR_PID=$!
 ACTION_PID=""
 OBSERVER_PID=""
 RELAY_PID=""

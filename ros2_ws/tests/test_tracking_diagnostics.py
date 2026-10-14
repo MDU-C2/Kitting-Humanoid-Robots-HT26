@@ -90,6 +90,13 @@ class TrackingDiagnosticsTests(unittest.TestCase):
             key = 'limited_command_' + self.trace.ARM_JOINT_NAMES[0]
             self.assertAlmostEqual(float(rows[0][key]), 0.04)
 
+    def test_direct_mode_lead_zero(self):
+        # G1_MOVEIT_DIRECT_TEST_TRACE_V1
+        status = self.fake_status()
+        status['xr_headless_max_lead_rad'] = 0.0
+        row = self.trace.status_to_row(status, 12345.0)
+        self.assertEqual(row[5], 0.0)
+
     def test_rejects_invalid_command_vector(self):
         status = self.fake_status()
         status['xr_limited_command_q'] = [0.0] * 13

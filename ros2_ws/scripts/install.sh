@@ -43,12 +43,9 @@ echo 'Applying/verifying the known XR headless patch (offline, NO motor publishe
 docker run --rm --network none \
   --mount "type=bind,source=$WS,target=/workspace" \
   "$IMAGE" bash /workspace/src/g1_xr_bridge/verify_and_apply_xr.sh --apply
-# The patch must now be applied, exactly as recorded in the repository.
-if ! git -C "$SRC/xr_teleoperate" apply --reverse --check \
-      "$SRC/g1_xr_bridge/patches/xr_headless_moveit.patch"; then
-  echo 'XR patch verification failed after installation.' >&2
-  exit 1
-fi
+# G1_MOVEIT_DIRECT_INSTALL_V1: verify the FULL automatic patch chain.
+# A reverse check of the original patch alone is invalid after an overlay.
+bash "$SRC/g1_xr_bridge/verify_and_apply_xr.sh"
 echo 'Building MoveIt ROS workspace and running offline tests...'
 docker run --rm --network none \
   --mount "type=bind,source=$WS,target=/workspace" \

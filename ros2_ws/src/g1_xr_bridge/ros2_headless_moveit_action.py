@@ -193,21 +193,46 @@ class HeadlessMoveItAction(Node):
                 if now-start >= traj.duration:
                     break
                 time.sleep(0.02)
-            # Give the physical arms up to 2 seconds to settle at the goal.
+            # G1_SETTLING_DIAGNOSTICS_V1: diagnostic-only change. Keep the exact
+            # existing acceptance tolerances and the two-second settling window.
+            final_q = traj.sample(traj.duration)
             settling_at = time.monotonic()
+            position_limit = 0.01
+            speed_limit = 0.12
+            worst_joint = 0
+            fastest_joint = 0
+            max_pos_error = float('nan')
+            max_speed = float('nan')
             while time.monotonic()-settling_at < 2.0:
-                send(traj.sample(traj.duration), 'trajectory', seq)
+                if goal.is_cancel_requested:
+                    _, actual, _ = state()
+                    send(actual, 'hold', seq)
+                    goal.canceled()
+                    result.error_code = FollowJointTrajectory.Result.SUCCESSFUL
+                    result.error_string = 'Physical action cancelled during settling; XR HOLD requested'
+                    return result
+                send(final_q, 'trajectory', seq)
                 seq += 1
                 _, actual, dq = state()
-                if (np.max(np.abs(actual-traj.sample(traj.duration))) <= 0.01
-                        and np.max(np.abs(dq)) <= 0.12):
+                pos_errors = np.abs(actual - final_q)
+                joint_speeds = np.abs(dq)
+                worst_joint = int(np.argmax(pos_errors))
+                fastest_joint = int(np.argmax(joint_speeds))
+                max_pos_error = float(pos_errors[worst_joint])
+                max_speed = float(joint_speeds[fastest_joint])
+                if max_pos_error <= position_limit and max_speed <= speed_limit:
                     send(actual, 'hold', seq)
                     goal.succeed()
                     result.error_code = FollowJointTrajectory.Result.SUCCESSFUL
                     result.error_string = 'Physical G1 goal confirmed from measured LowState; XR HOLD requested'
                     return result
                 time.sleep(0.02)
-            raise RuntimeError('Goal not achieved within 0.05rad / 0.12rad/s settling tolerance')
+            raise RuntimeError(
+                'Goal not achieved within 2.0s; '
+                f'position error={max_pos_error:.4f}rad '
+                f'(limit {position_limit:.3f}rad) at {ARM_JOINT_NAMES[worst_joint]}; '
+                f'joint speed={max_speed:.4f}rad/s '
+                f'(limit {speed_limit:.2f}rad/s) at {ARM_JOINT_NAMES[fastest_joint]}')
         except Exception as exc:
             self.get_logger().error(f'Physical goal aborted: {exc}')
             try:

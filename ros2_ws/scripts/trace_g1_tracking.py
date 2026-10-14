@@ -4,7 +4,7 @@
 Polls only the existing headless XR IPC `status` request. Never imports the
 Unitree SDK, opens DDS, acquires motor ownership, or sends a trajectory.
 
-The XR limited command is a snapshot of the latest command computed by its
+The XR published command is a snapshot of the latest q computed by its
 250 Hz publisher; it is not an acknowledgement from the robot's motor drive.
 """
 import argparse
@@ -57,7 +57,9 @@ def status_to_row(status, wall_time):
     desired, command, measured, _ = vectors
     speed = float(status['xr_headless_speed_limit_rad_s'])
     lead = float(status['xr_headless_max_lead_rad'])
-    if not (math.isfinite(speed) and speed > 0 and math.isfinite(lead) and lead > 0):
+    # G1_MOVEIT_DIRECT_TRACE_V1: lead=0 means the headless clamp is disabled;
+    # speed reflects the YAML limit, not an additional XR headless limiter.
+    if not (math.isfinite(speed) and speed > 0 and math.isfinite(lead) and lead >= 0):
         raise ValueError('Invalid XR motion-limit diagnostics')
     monotonic_s = float(status['status_monotonic_s'])
     if not math.isfinite(monotonic_s):

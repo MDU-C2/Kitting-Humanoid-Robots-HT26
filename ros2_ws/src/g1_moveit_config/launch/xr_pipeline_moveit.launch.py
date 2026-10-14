@@ -52,11 +52,11 @@ def generate_launch_description():
             load_yaml("g1_moveit_config", "config/kinematics.yaml")
     }
 
-    # Conservative velocity and acceleration limits for MoveIt trajectory generation.
+    # G1_MOVEIT_YAML_AUTHORITY_V1: URDF and joint_limits.yaml own motion limits.
+    # RViz velocity/acceleration scaling is intentionally independent.
     robot_description_planning = {
         "robot_description_planning": {
-            "joint_limits":
-                load_yaml("g1_moveit_config", "config/joint_limits.yaml")["joint_limits"]
+            "joint_limits": load_yaml("g1_moveit_config", "config/joint_limits.yaml")["joint_limits"]
         }
     }
 

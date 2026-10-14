@@ -8,6 +8,7 @@ Not hardware-validated. Supervise physical activation and release.
 """
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -32,12 +33,17 @@ def verify():
     source = arm.read_text()
     if 'G1_HEADLESS_MOVEIT_PATCH_V1' not in source:
         raise RuntimeError('Opt-in headless safety patch not installed in original XR arm class')
+    # G1_MOVEIT_DIRECT_BRIDGE_V1: launch only when the automatic direct-command
+    # overlay is installed; never fall back to silently filtered trajectories.
+    if 'G1_MOVEIT_DIRECT_COMMANDS_V1' not in source or 'def _headless_slew_step(' in source:
+        raise RuntimeError('XR direct MoveIt command overlay absent or old limiter active')
     for anchor in ('class G1_29_ArmController:', 'def release_headless(self)',
                    'self.lowcmd_publisher.Write(self.msg)', 'def ctrl_dual_arm('):
         if anchor not in source:
             raise RuntimeError(f'XR source anchor missing: {anchor}')
     print('PASS: original XR motor publisher with opt-in headless startup/release patch')
     print('Mode: XR --motion; source: MoveIt via local socket; headset: not used')
+    print('G1 headless execution: direct MoveIt time-parameterized targets (no extra XR slew or feedback-lead clamp)')
     print('No hardware or DDS initialized during --verify')
 
 
@@ -86,6 +92,8 @@ class Control:
                         selected_arm_target=self.last_q.tolist(),
                         xr_motor_target=motor_target.tolist(),
                         xr_limited_command_q=limited_command.tolist(),
+                        xr_execution_mode='direct_moveit_trajectory',
+                        xr_extra_speed_shaping_active=False,
                         xr_headless_speed_limit_rad_s=float(self.arm.arm_velocity_limit),
                         xr_headless_max_lead_rad=float(self.arm._headless_max_command_lead_rad),
                         status_monotonic_s=now,
@@ -196,7 +204,11 @@ def main():
     p.add_argument('--hardware', action='store_true')
     p.add_argument('--interface', default='enx50a03000b0dc')
     p.add_argument('--operator-ack', default='')
+    # G1_MOVEIT_YAML_AUTHORITY_V1: speed comes from MoveIt joint_limits.yaml.
+    p.add_argument('--arm-speed-rad-s', type=float, default=0.25)
     args = p.parse_args()
+    if not (math.isfinite(args.arm_speed_rad_s) and args.arm_speed_rad_s > 0):
+        p.error('--arm-speed-rad-s must be positive and finite')
     verify()
     if args.verify:
         return
@@ -236,6 +248,9 @@ def main():
     control = None
     server = None
     try:
+        # This sets the legacy XR metadata only; direct headless commands are NOT clipped.
+        ctrl.set_arm_velocity_limit(args.arm_speed_rad_s)
+        print(f'XR direct MoveIt trajectory mode; YAML max velocity: {args.arm_speed_rad_s:.3f} rad/s (no XR headless shaping)', flush=True)
         control = Control(ctrl, gravity)
         server = Server(SOCKET, Handler)
         os.chmod(SOCKET, 0o600)
