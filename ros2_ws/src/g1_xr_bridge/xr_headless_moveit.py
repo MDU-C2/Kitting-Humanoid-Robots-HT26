@@ -74,10 +74,21 @@ class Control:
             now = time.monotonic()
             with self.arm.ctrl_lock:
                 motor_target = self.np.asarray(self.arm.q_target, dtype=float).copy()
+            # XR_LIMITED_COMMAND_STATUS_V1: read-only snapshot of the latest
+            # slew/lead-clipped q. This is not a motor-drive acknowledgement.
+            # Publisher assigns a fresh NumPy array rather than mutating it.
+            limited_command = self.np.asarray(self.arm._headless_command_q, dtype=float).copy()
+            if (limited_command.shape != (14,) or
+                    not self.np.isfinite(limited_command).all()):
+                raise RuntimeError('Invalid XR limited-command diagnostic state')
             selected_error = float(self.np.max(self.np.abs(self.last_q-q)))
             return dict(kind='status_ack', hardware_connected=True, mode='hardware',
                         selected_arm_target=self.last_q.tolist(),
                         xr_motor_target=motor_target.tolist(),
+                        xr_limited_command_q=limited_command.tolist(),
+                        xr_headless_speed_limit_rad_s=float(self.arm.arm_velocity_limit),
+                        xr_headless_max_lead_rad=float(self.arm._headless_max_command_lead_rad),
+                        status_monotonic_s=now,
                         selected_target_delta_rad=round(selected_error, 5),
                         motor_target_delta_rad=round(float(self.np.max(self.np.abs(motor_target-q))), 5),
                         xr_loop_fresh=self.active and self.worker.is_alive(),
