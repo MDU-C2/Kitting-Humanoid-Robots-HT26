@@ -21,11 +21,21 @@ if [ ! -d "${WORKSPACE_DIR}" ]; then
     exit 1
 fi
 
-if [ -z "${XAUTHORITY_VALUE}" ] || [ ! -f "${XAUTHORITY_VALUE}" ]; then
-    echo "Error: XAUTHORITY is not set or does not point to a valid file."
-    echo "GUI applications such as RViz cannot be started safely."
-    exit 1
+XAUTH_ARGS=()
+if [ -n "${XAUTHORITY_VALUE}" ] && [ -f "${XAUTHORITY_VALUE}" ]; then
+    XAUTH_ARGS=(--mount type=bind,source="${XAUTHORITY_VALUE}",target=/tmp/.docker.xauth,readonly
+                -e XAUTHORITY=/tmp/.docker.xauth)
+else
+    # WSLg (Windows) has no XAUTHORITY; on a normal Linux desktop RViz needs it
+    echo "Warning: XAUTHORITY is not set or not a file; GUI programs may not open."
 fi
+
+# ROS 2 talks to the robot and the perception container over DDS: the container
+# must share the host network (multicast discovery does not pass Docker's bridge).
+ROS_ARGS=(--network host --ipc host
+          -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+          -e KARIS_NET_IF="${KARIS_NET_IF:-}"
+          -e KARIS_DDS_PEERS="${KARIS_DDS_PEERS:-}")
 
 echo "Building Docker image ${IMAGE_NAME}..."
 
@@ -34,6 +44,7 @@ docker build \
     --build-arg USER_UID="${USER_UID}" \
     --build-arg USER_GID="${USER_GID}" \
     -t "${IMAGE_NAME}" \
+    -f "${SCRIPT_DIR}/moveit/Dockerfile" \
     "${PROJECT_DIR}"
 
 if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
@@ -47,8 +58,8 @@ docker run -it \
     --name "${CONTAINER_NAME}" \
     --mount type=bind,source="${WORKSPACE_DIR}",target=/workspace \
     --mount type=bind,source=/tmp/.X11-unix,target=/tmp/.X11-unix,readonly \
-    --mount type=bind,source="${XAUTHORITY_VALUE}",target=/tmp/.docker.xauth,readonly \
+    "${XAUTH_ARGS[@]}" \
+    "${ROS_ARGS[@]}" \
     -e DISPLAY="${DISPLAY_VALUE}" \
-    -e XAUTHORITY=/tmp/.docker.xauth \
     "${IMAGE_NAME}" \
     bash

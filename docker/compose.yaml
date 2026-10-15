@@ -1,0 +1,67 @@
+# KARIS containers on the vision computer (all ROS 2 Humble, host network, CycloneDDS).
+#
+#   bash docker/setup_env.sh                  # once: writes docker/.env for this computer (--robot <ip> for WiFi)
+#   docker compose -f docker/compose.yaml build perception          # 30-60 min the first time
+#   bash docker/isaac_fp/build.sh                                   # Isaac helper image (optional)
+#   docker compose -f docker/compose.yaml up -d perception          # start (keeps running)
+#   docker compose -f docker/compose.yaml --profile isaac up -d     # + the Isaac helper
+#   docker compose -f docker/compose.yaml exec perception bash      # a terminal in it
+#   docker compose -f docker/compose.yaml exec isaac_fp bash
+#   docker compose -f docker/compose.yaml down                      # stop
+# On WSL add  -f docker/compose.wsl.yaml  after compose.yaml (GPU libraries of WSL).
+#
+# The MoveIt container stays the team's docker/start.sh (it is on the host network too).
+
+x-ros: &ros
+  network_mode: host
+  ipc: host
+  stdin_open: true
+  tty: true
+  environment: &env
+    KARIS_REPO: ${KARIS_REPO:?run bash docker/setup_env.sh first}
+    KARIS_WS: ${KARIS_REPO}/ros2_ws
+    KARIS_DIR: ${KARIS_DIR:?run bash docker/setup_env.sh first}
+    ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    KARIS_NET_IF: ${KARIS_NET_IF:-}
+    KARIS_DDS_PEERS: ${KARIS_DDS_PEERS:-}
+    DISPLAY: ${DISPLAY:-:0}
+    NVIDIA_DRIVER_CAPABILITIES: all
+    # the containers run as root on a repo owned by your user: let git (used by colcon) accept it
+    GIT_CONFIG_COUNT: "1"
+    GIT_CONFIG_KEY_0: safe.directory
+    GIT_CONFIG_VALUE_0: "*"
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  perception:
+    <<: *ros
+    image: karis/perception:humble
+    build:
+      context: perception
+      args:
+        WITH_RFDETR: ${WITH_RFDETR:-1}
+        UBUNTU_MIRROR: ${UBUNTU_MIRROR:-}
+    container_name: karis_perception
+    volumes:
+      - ${KARIS_REPO}:${KARIS_REPO}
+      - ${KARIS_DIR}:${KARIS_DIR}
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    working_dir: ${KARIS_DIR}
+
+  isaac_fp:
+    <<: *ros
+    image: karis/isaac_fp:3.2            # built by docker/isaac_fp/build.sh
+    profiles: [isaac]
+    container_name: karis_isaac_fp
+    volumes:
+      - ${KARIS_REPO}:${KARIS_REPO}
+      - ${KARIS_DIR}:${KARIS_DIR}
+      - ${KARIS_REPO}/docker/isaac_fp/models:/models
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    working_dir: ${KARIS_REPO}/ros2_ws

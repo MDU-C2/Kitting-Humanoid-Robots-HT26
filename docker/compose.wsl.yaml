@@ -1,0 +1,11 @@
+# Extra settings for Docker Engine inside WSL 2: the GPU is reached through WSL's own
+# libraries and /dev/dxg (the same fix the FoundationPose container needed). The images
+# put /usr/lib/wsl/lib on LD_LIBRARY_PATH themselves when it exists.
+#   docker compose -f docker/compose.yaml -f docker/compose.wsl.yaml up -d perception
+services:
+  perception:
+    devices: ["/dev/dxg:/dev/dxg"]
+    volumes: ["/usr/lib/wsl:/usr/lib/wsl:ro"]
+  isaac_fp:
+    devices: ["/dev/dxg:/dev/dxg"]
+    volumes: ["/usr/lib/wsl:/usr/lib/wsl:ro"]
