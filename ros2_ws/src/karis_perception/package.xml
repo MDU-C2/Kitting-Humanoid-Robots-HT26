@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>karis_perception</name>
+  <version>0.1.0</version>
+  <description>KARIS perception: detector (YOLO / RF-DETR) + 6D pose tracking of the kitting parts as a ROS 2 node (FoundationPose runs in the Isaac ROS helper, karis_isaac_fp), the part classes and CAD meshes, a camera player for recordings, and tools (TensorRT export, detector benchmark, Isaac meshes). Runs in the perception container (ROS 2 Humble). Trained models are read from KARIS_DIR/models (not in git). Not available as rosdep keys (installed by docker/perception/Dockerfile): ultralytics, torch, rfdetr, pyrealsense2.</description>
+  <maintainer email="kim.svedberg03@gmail.com">Kim Svedberg</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>karis_interfaces</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-trimesh</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>python3-flake8</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

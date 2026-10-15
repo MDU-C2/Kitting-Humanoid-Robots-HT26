@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>karis_isaac_fp</name>
+  <version>0.1.0</version>
+  <description>KARIS helper for NVIDIA Isaac ROS FoundationPose (TensorRT, Isaac ROS 3.2): launch file for the Isaac nodes and the bridge service /karis/fp/estimate_pose. Runs in the Isaac helper container.</description>
+  <maintainer email="kim.svedberg03@gmail.com">Kim Svedberg</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>karis_interfaces</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>vision_msgs</exec_depend>
+  <exec_depend>isaac_ros_tensor_list_interfaces</exec_depend>
+  <exec_depend>isaac_ros_foundationpose</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
