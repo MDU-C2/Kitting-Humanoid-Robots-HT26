@@ -16,3 +16,25 @@ Thumbs.db
 ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
+ros2_ws/build_perception/
+ros2_ws/install_perception/
+ros2_ws/build_isaac/
+ros2_ws/install_isaac/
+docker/isaac_fp/isaac_ros_common/
+docker/isaac_fp/models/
+docker/.env
+
+# Python
+__pycache__/
+*.pyc
+
+# local_data/: local data of each computer (models, data, videos, bags, generated meshes); only the
+# READMEs are in git. The code is in ros2_ws/src/.
+local_data/*
+!local_data/README.md
+!local_data/.gitignore
+!local_data/models/
+local_data/models/*
+!local_data/models/README.md
+docker/.env.*
+!docker/.env.example
