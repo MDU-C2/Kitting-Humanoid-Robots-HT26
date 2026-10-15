@@ -1,0 +1,8 @@
+# Pins shared by every pip install in the perception image.
+# ROS 2 Humble's Python message libraries are compiled against NumPy 1.x.
+numpy<2
+torch==2.4.1
+# setuptools >= 70 breaks colcon builds of ament_python packages on Ubuntu 22.04
+setuptools<70
+torchvision==0.19.1
+opencv-python<4.12
