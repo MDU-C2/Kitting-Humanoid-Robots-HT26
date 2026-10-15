@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>karis_task</name>
+  <version>0.1.0</version>
+  <description>KARIS motion side (Humble, MoveIt container): G1 joint-state bridge, pose listener, MoveIt planning-scene updater and the PickObject action server.</description>
+  <maintainer email="kim.svedberg03@gmail.com">Kim Svedberg</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>karis_interfaces</exec_depend>
+  <exec_depend>unitree_hg</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>shape_msgs</exec_depend>
+  <exec_depend>moveit_msgs</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

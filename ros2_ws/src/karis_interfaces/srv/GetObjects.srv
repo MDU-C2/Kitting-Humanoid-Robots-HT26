@@ -1,0 +1,9 @@
+# Ask the perception for the parts it currently sees.
+string class_name     # only this class ("" = all classes)
+string object_id      # only this part ("" = all parts)
+string target_frame   # frame for the poses, e.g. "pelvis" ("" = camera frame); needs TF from the robot model
+bool fresh            # true = wait for the next processed frame instead of answering from the last one
+---
+bool success
+string message
+ObjectPoseArray objects

@@ -1,0 +1,13 @@
+# Pick one part and (optionally) place it in a tray slot. Served by the motion side (karis_task).
+string object_id      # this tracked part, e.g. "rund_mutter_1", or
+string class_name     # any part of this class (used when object_id is "")
+string place_slot     # class of the slot to place it in, e.g. "Rund mutter HOLE 11432713" ("" = pick only)
+bool dry_run          # true = plan and report the target poses, do not move the robot
+---
+bool success
+string message
+geometry_msgs/PoseStamped grasp_pose     # where the hand was sent (base frame)
+geometry_msgs/PoseStamped place_pose
+---
+string state          # "locating" | "planning" | "approaching" | "grasping" | "placing" | "done"
+float32 progress      # 0..1
