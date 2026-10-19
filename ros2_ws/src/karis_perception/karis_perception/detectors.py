@@ -96,11 +96,46 @@ def choose_model(models_dir: Path, choice: str | None = None) -> Path:
     return picked
 
 
-def load_detector(path: Path, image_size=1280, device=0, iou=0.6):
-    det = YoloDetector(path, image_size, device, iou) if model_kind(path) == "YOLO" \
-        else RFDETRDetector(path)
-    det.model_file = Path(path).name
+def load_detector(path: Path, image_size=0, device=0, iou=0.6, fallback_size=640, log=print):
+    """YOLO (.pt) or RF-DETR (.pth). image_size: YOLO input size in px; 0 = the size the
+    model was trained at (fallback_size if the checkpoint does not say). RF-DETR sets its
+    own input size."""
+    path = Path(path)
+    if model_kind(path) == "YOLO":
+        det = YoloDetector(path, fallback_size, device, iou)
+        trained = yolo_train_imgsz(det.model)
+        if image_size and image_size > 0:
+            det.image_size, src = int(image_size), "parameter image_size"
+        elif trained:
+            det.image_size, src = trained, "the model's training size"
+        else:
+            det.image_size, src = fallback_size, "the fallback size (not stored in the model)"
+        note = f" (trained at {trained})" if trained and trained != det.image_size else ""
+        log(f"YOLO input size {det.image_size} px from {src}{note}")
+    else:
+        det = RFDETRDetector(path)
+        log("Detector input size: set by the RF-DETR model itself")
+    det.model_file = path.name
     return det
+
+
+def yolo_train_imgsz(yolo):
+    """Image size an Ultralytics YOLO .pt was trained at, or None. Ultralytics keeps the
+    training arguments in the checkpoint ('train_args') and copies imgsz into overrides."""
+    ck = getattr(yolo, "ckpt", None)
+    sources = [getattr(yolo, "overrides", None),
+               ck.get("train_args") if isinstance(ck, dict) else None,
+               getattr(getattr(yolo, "model", None), "args", None)]
+    for src in sources:
+        v = src.get("imgsz") if isinstance(src, dict) else getattr(src, "imgsz", None)
+        if isinstance(v, (list, tuple)) and v:
+            v = max(v)
+        try:
+            if v and int(v) > 0:
+                return int(v)
+        except (TypeError, ValueError):
+            pass
+    return None
 
 
 class _Tee:

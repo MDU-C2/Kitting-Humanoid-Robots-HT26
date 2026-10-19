@@ -3,7 +3,7 @@
 <package format="3">
   <name>karis_perception</name>
   <version>0.1.0</version>
-  <description>KARIS perception: detector (YOLO / RF-DETR) + 6D pose tracking of the kitting parts as a ROS 2 node (FoundationPose runs in the Isaac ROS helper, karis_isaac_fp), the part classes and CAD meshes, a camera player for recordings, and tools (TensorRT export, detector benchmark, Isaac meshes). Runs in the perception container (ROS 2 Humble). Trained models are read from KARIS_DIR/models (not in git). Not available as rosdep keys (installed by docker/perception/Dockerfile): ultralytics, torch, rfdetr, pyrealsense2.</description>
+  <description>KARIS perception: detector (YOLO / RF-DETR) + 6D pose tracking of the kitting parts as a ROS 2 node (FoundationPose runs in the Isaac ROS helper, karis_isaac_fp), the part classes and CAD meshes, a camera player for recordings, and tools (Isaac meshes, bag reindexing). Runs in the perception container (ROS 2 Humble). Trained models are read from KARIS_DIR/models (not in git). Not available as rosdep keys (installed by docker/perception/Dockerfile): ultralytics, torch, rfdetr, pyrealsense2.</description>
   <maintainer email="kim.svedberg03@gmail.com">Kim Svedberg</maintainer>
   <license>MIT</license>
 

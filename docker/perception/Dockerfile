@@ -64,27 +64,23 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && python3 -m pip install --ignore-installed blinker
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cu121
-# numpy<2 (ROS), opencv, scipy + trimesh (meshes, drift check, calibration), pyyaml,
-# pillow (calibration board), lz4 (bag_reindex), pyrealsense2 (camera player for .bag), pytest + flake8 (tests)
+# numpy<2 (ROS), opencv, scipy + trimesh (meshes, drift check), pyyaml,
+# pillow, lz4 (bag_reindex), pyrealsense2 (camera player for .bag), pytest + flake8 (tests)
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install "numpy<2" scipy pyyaml opencv-python trimesh pillow lz4 "pyrealsense2<2.56" pytest flake8
 # YOLO (Ultralytics >= 8.4: YOLOv8 ... YOLO26)
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install "ultralytics>=8.4"
-# TensorRT for YOLO .engine models (export_trt / bench_detector); 10.3 = the version Isaac ROS 3.2 uses
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m pip install "tensorrt-cu12==10.3.0" onnx onnxslim
 # fail the build here (not at the first frame) if something does not import
-RUN python3 -c "import torch, torchvision, cv2, numpy, scipy, trimesh, yaml, lz4, ultralytics, pyrealsense2, tensorrt; \
+RUN python3 -c "import torch, torchvision, cv2, numpy, scipy, trimesh, yaml, lz4, ultralytics, pyrealsense2; \
 print('perception deps OK: torch', torch.__version__, 'numpy', numpy.__version__, 'ultralytics', ultralytics.__version__)"
 
 # ---- RF-DETR in its own venv (it wants newer torch/transformers) -----------------------
-# TensorRT for .trt engines: the CUDA 12 build (rfdetr[tensorrt] would pull the CUDA 13 one)
 RUN --mount=type=cache,target=/root/.cache/pip \
     if [ "${WITH_RFDETR}" = "1" ]; then \
         python3 -m venv /opt/rfdetr-venv \
         && env -u PIP_CONSTRAINT /opt/rfdetr-venv/bin/pip install --upgrade pip \
-        && env -u PIP_CONSTRAINT /opt/rfdetr-venv/bin/pip install "rfdetr[onnx]>=1.9" "tensorrt-cu12>=10.8,<11" polygraphy onnxconverter-common ; \
+        && env -u PIP_CONSTRAINT /opt/rfdetr-venv/bin/pip install "rfdetr>=1.9" ; \
     fi
 ENV KARIS_RFDETR_PYTHON=/opt/rfdetr-venv/bin/python
 
