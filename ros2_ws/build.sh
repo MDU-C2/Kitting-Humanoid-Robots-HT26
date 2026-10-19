@@ -19,13 +19,15 @@ if command -v git >/dev/null; then
 fi
 EXTRA=()
 case "${KARIS_ROLE:-}" in
-    perception) B=build_perception; I=install_perception
+    perception) B=build_perception; I=install_perception; L=log_perception
                 P="karis_interfaces karis_perception karis_bringup" ;;
-    isaac)      B=build_isaac; I=install_isaac
+    isaac)      B=build_isaac; I=install_isaac; L=log_isaac
                 P="karis_interfaces karis_isaac_fp" ;;
-    *)          B=build; I=install; EXTRA=(--symlink-install)
+    *)          B=build; I=install; L=log; EXTRA=(--symlink-install)
                 P="karis_interfaces karis_task karis_bringup" ;;
 esac
-colcon build --build-base "$B" --install-base "$I" "${EXTRA[@]}" --packages-select $P "$@"
+# own log folder per container too: the perception/Isaac containers run as root, the team's
+# MoveIt container as your user, which cannot write into a root-owned log/
+colcon --log-base "$L" build --build-base "$B" --install-base "$I" "${EXTRA[@]}" --packages-select $P "$@"
 echo
 echo "Built for '${KARIS_ROLE:-motion}' into $I. New terminals pick it up; in this one:  source $WS/karis_ros_env.sh"
