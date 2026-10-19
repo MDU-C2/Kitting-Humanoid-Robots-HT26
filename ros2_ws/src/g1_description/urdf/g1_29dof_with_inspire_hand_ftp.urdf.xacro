@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro"
+       name="g1_29dof_with_inspire_hand_ftp">
+  <!--
+    Mechanical model used by MoveIt-XR and robot_state_publisher.
+    Physical arm commands are owned exclusively by the original XR controller.
+    Do not add ros2_control or the removed G1ArmSdkSystem hardware plugin here.
+  -->
+  <xacro:include filename="g1_29dof_with_inspire_hand_ftp.urdf"/>
+</robot>

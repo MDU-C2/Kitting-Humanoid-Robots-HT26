@@ -1,0 +1,14 @@
+# ROS 2 build artifacts (relative to this ros2_ws directory)
+/build/
+/install/
+/log/
+/g1_headless_logs/
+
+# Pinned, downloaded external source trees
+/src/xr_teleoperate/
+/src/unitree_sdk2_python/
+
+# Local experiments, runtime outputs and Python caches
+/.local_archive/
+__pycache__/
+*.pyc
