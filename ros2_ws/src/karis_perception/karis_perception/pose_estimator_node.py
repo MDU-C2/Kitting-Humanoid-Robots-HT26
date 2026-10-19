@@ -174,7 +174,7 @@ class PoseEstimatorNode(Node):
 
     # ------------------------------------------------------------ vision setup
     def _load_vision(self):
-        from karis_perception import detectors, isaac_backend, tracker, trt_support, vision
+        from karis_perception import detectors, isaac_backend, tracker, vision
         self.vision, self.trk = vision, tracker
         for k, v in {"CONFIDENCE": self.confidence, "IOU": self.iou, "DEVICE": self.device,
                      "MIN_MASK_AREA_PX": self.min_mask_area, "MIN_VALID_DEPTH_PX": self.min_valid_depth,
@@ -191,11 +191,10 @@ class PoseEstimatorNode(Node):
             raise ValueError(f"backend '{self.backend}' is not available: FoundationPose runs only in "
                              "the Isaac helper (backend isaac)")
 
-        trt_support.enable(detectors)                       # .engine / .trt (TensorRT) models too
         models_dir = Path(self.models_dir) if self.models_dir else self.karis_dir / "models"
         path = detectors.choose_model(models_dir, self.model_choice or None)
-        self.model = trt_support.load_detector(detectors, path, self.image_size, self.device, self.iou,
-                                               fallback_size=640, log=self.get_logger().info)
+        self.model = detectors.load_detector(path, self.image_size, self.device, self.iou,
+                                             fallback_size=640, log=self.get_logger().info)
         classes = vision.load_classes(self.classes_file or None)
         self.isaac = isaac_backend.IsaacClient(self, self.isaac_service, self.isaac_timeout)
         self.ests, self.fpu, self.glctx = isaac_backend.build_isaac_estimators(

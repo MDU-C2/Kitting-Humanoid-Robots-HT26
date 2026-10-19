@@ -7,7 +7,7 @@ karis_pose_estimator:
     # --- files
     karis_dir: ""                 # local data folder (models/, data/, ...); "" = $KARIS_DIR (<repo>/karis)
     models_dir: ""                # "" = <karis_dir>/models
-    model: ""                     # file in models/ (.pt/.engine YOLO, .pth/.trt RF-DETR); "" = last used
+    model: ""                     # file in models/ (.pt YOLO, .pth RF-DETR); "" = last used
     classes_file: ""              # "" = karis_perception/config/classes.yaml
     # --- detector
     confidence: 0.6               # confidence threshold (0..1): higher = fewer false detections

@@ -27,8 +27,6 @@ setup(
             "camera_player = karis_perception.camera_player_node:main",
             "make_isaac_meshes = karis_perception.make_isaac_meshes:main",
             "bag_reindex = karis_perception.bag_reindex:main",
-            "export_trt = karis_perception.export_trt:main",
-            "bench_detector = karis_perception.bench_detector:main",
         ],
     },
 )

@@ -173,7 +173,7 @@ ros2 launch karis_bringup perception.launch.py model:=YOLO_26s.pt show:=true
 ```
 
 - Start C first: every pose comes from the Isaac helper.
-- `model:=` is any file in `$KARIS_DIR/models` (`.pt`/`.engine` YOLO, `.pth`/`.trt`
+- `model:=` is any file in `$KARIS_DIR/models` (`.pt` YOLO, `.pth`
   RF-DETR); without it, the model used last.
 - **Detector every N frames:** 5 by default; for one run `redetect_every:=10`.
 - **Detector confidence:** 0.6 by default (`confidence` in
