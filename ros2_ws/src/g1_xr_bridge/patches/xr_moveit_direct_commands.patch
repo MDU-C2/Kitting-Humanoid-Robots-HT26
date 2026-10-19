@@ -1,0 +1,70 @@
+diff --git a/teleop/robot_control/robot_arm.py b/teleop/robot_control/robot_arm.py
+--- a/teleop/robot_control/robot_arm.py
++++ b/teleop/robot_control/robot_arm.py
+@@ -89,10 +89,10 @@
+         self._headless_last_target_at = None
+         self._headless_initial_at = None
+         self._headless_target_timeout_s = 0.35
+-        # Headless-only accumulated command; stock Quest clipping is unchanged.
+-        # Limit position-command lead over measured feedback to prevent runaway.
++        # G1_MOVEIT_DIRECT_COMMANDS_V1: diagnostic snapshot of last published q.
++        # Headless trajectory commands are no longer clamped against measured q.
+         self._headless_command_q = None
+-        self._headless_max_command_lead_rad = 0.035
++        self._headless_max_command_lead_rad = 0.0  # 0 = headless lead clamp disabled
+         self.lowstate_rx_at = None
+         logger_mp.info("Initialize G1_29_ArmController...")
+         self.q_target = np.zeros(14)
+@@ -172,7 +172,8 @@
+             self.q_target = initial_q.copy()
+             self._headless_command_q = initial_q.copy()
+             self.tauff_target = initial_tau.copy()
+-            self.set_arm_velocity_limit(0.25)
++            # Headless paths do not impose a controller-side speed cap; MoveIt
++            # time-parameterizes and scales the trajectory from URDF/YAML.
+             self._headless_initial_at = time.monotonic()
+             self._headless_last_target_at = self._headless_initial_at
+         # initialize publish thread
+@@ -203,23 +204,6 @@
+         motion_scale = np.max(np.abs(delta)) / (velocity_limit * self.control_dt)
+         cliped_arm_q_target = current_q + delta / max(motion_scale, 1.0)
+         return cliped_arm_q_target
+-
+-    @staticmethod
+-    def _headless_slew_step(previous, target, measured, max_step, max_lead):
+-        """Headless only: advance from prior COMMAND, with bounded measured lead.
+-
+-        Preserve synchronized joint motion through global scaling, then cap
+-        absolute command/feedback separation. Never applies to Quest mode.
+-        """
+-        delta = target - previous
+-        scale = max(1.0, float(np.max(np.abs(delta))) / max_step)
+-        candidate = previous + delta / scale
+-        # Clamp to measured feedback: a stalled joint cannot accumulate an
+-        # arbitrarily large queued motor position command.
+-        candidate = np.clip(candidate, measured - max_lead, measured + max_lead)
+-        # A sudden feedback change must not cause an unbounded command jump.
+-        candidate = np.clip(candidate, previous - max_step, previous + max_step)
+-        return candidate
+ 
+     def _ctrl_motor_state(self):
+         if self.motion_mode and not self.headless_moveit:
+@@ -254,13 +238,11 @@
+                 arm_tauff_target = self.tauff_target
+ 
+             if self.headless_moveit:
+-                measured_q = self.get_current_dual_arm_q()
+-                # Original measured-relative clip prevents a small target from
+-                # accumulating; advance from previous published q instead.
+-                cliped_arm_q_target = self._headless_slew_step(
+-                    self._headless_command_q, arm_q_target, measured_q,
+-                    self.arm_velocity_limit * self.control_dt,
+-                    self._headless_max_command_lead_rad)
++                # G1_MOVEIT_DIRECT_COMMANDS_V1: publish the already time-scaled
++                # MoveIt sample directly. Never affect original headset mode.
++                # ctrl_dual_arm validates finite inputs; heartbeat + LowState
++                # stale feedback handling and monitored XR release remain active.
++                cliped_arm_q_target = arm_q_target.copy()
+                 self._headless_command_q = cliped_arm_q_target.copy()
+             elif self.simulation_mode:
+                 cliped_arm_q_target = arm_q_target
