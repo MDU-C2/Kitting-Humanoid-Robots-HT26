@@ -20,6 +20,8 @@ ros2_ws/build_perception/
 ros2_ws/install_perception/
 ros2_ws/build_isaac/
 ros2_ws/install_isaac/
+ros2_ws/log_perception/
+ros2_ws/log_isaac/
 docker/isaac_fp/isaac_ros_common/
 docker/isaac_fp/models/
 docker/.env
