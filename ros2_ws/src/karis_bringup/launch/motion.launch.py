@@ -1,36 +1,27 @@
-"""Motion side (Humble container): robot model + vision -> motion nodes.
+"""KARIS vision -> motion nodes, run in the team's MoveIt container (ros2_ws/scripts/start.sh):
 
-    ros2 launch karis_bringup motion.launch.py                     # real G1
-    ros2 launch karis_bringup motion.launch.py fake_joints:=true rviz:=true
+    ros2 launch karis_bringup motion.launch.py                     # plan only
+    ros2 launch karis_bringup motion.launch.py execute:=true       # MoveIt also executes
 
-Starts robot_model.launch.py, the MoveIt scene updater, the pose listener and the
-/karis/pick action server. MoveIt's move_group itself comes from the G1 MoveIt config
-(not in this repo yet); until then use dry_run goals.
+Starts the MoveIt scene updater, the pose listener and the /karis/pick action server.
+The robot model (robot_state_publisher, /joint_states), move_group and the arm controller
+come from the team's MoveIt stack (ros2_ws/scripts/run_g1.sh -> g1_moveit_config,
+g1_xr_bridge); this launch does not start them. Without move_group, use dry_run goals.
 """
-import os
-
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    share = get_package_share_directory("karis_bringup")
     arg = LaunchConfiguration
     return LaunchDescription([
-        DeclareLaunchArgument("fake_joints", default_value="false"),
-        DeclareLaunchArgument("rviz", default_value="false"),
         DeclareLaunchArgument("base_frame", default_value="pelvis"),
         DeclareLaunchArgument("planning_group", default_value="right_arm"),
         DeclareLaunchArgument("ee_link", default_value="right_wrist_yaw_link"),
         DeclareLaunchArgument("execute", default_value="false",
                               description="true = MoveIt also executes (moves the real arm!)"),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(os.path.join(share, "launch", "robot_model.launch.py")),
-            launch_arguments={"fake_joints": arg("fake_joints"), "rviz": arg("rviz")}.items()),
         Node(package="karis_task", executable="scene_updater", output="screen"),
         Node(package="karis_task", executable="pose_listener", output="screen",
              parameters=[{"print_every_s": 5.0}]),

@@ -7,6 +7,13 @@
     ros2 launch karis_bringup perception.launch.py image_size:=1280        # YOLO size (default: as trained)
     ros2 launch karis_bringup perception.launch.py player:=/home/kimsv/Kitting-Humanoid-Robots-HT26/local_data/videos/x.bag   # no robot
     ros2 launch karis_bringup perception.launch.py player:=/home/kimsv/Kitting-Humanoid-Robots-HT26/local_data/data           # the test photos
+
+Camera mount: also publishes the static TF d435_link -> head_camera_color_optical_frame
+(camera_mount:=true, the default). The robot model (robot_state_publisher in the team's MoveIt
+stack, or karis_bringup/scripts/observe_g1_tf.sh) publishes pelvis -> ... -> d435_link, so
+together TF has pelvis -> camera and the node publishes /karis/object_poses_base. The values
+are the nominal colour-imager position relative to the URDF's d435_link (x forward, z up;
+optical frame = z forward, x right); correct them with camera_x/y/z/yaw/pitch/roll (m, rad).
 """
 import os
 
@@ -38,6 +45,13 @@ def _nodes(context):
     actions = [Node(package="karis_perception", executable="pose_estimator",
                     name="karis_pose_estimator", output="screen", emulate_tty=True,
                     parameters=[get("params_file"), overrides])]
+    if BOOL.get(get("camera_mount").lower(), True):
+        actions.append(Node(
+            package="tf2_ros", executable="static_transform_publisher", name="karis_camera_mount",
+            arguments=["--x", get("camera_x"), "--y", get("camera_y"), "--z", get("camera_z"),
+                       "--yaw", get("camera_yaw"), "--pitch", get("camera_pitch"),
+                       "--roll", get("camera_roll"),
+                       "--frame-id", "d435_link", "--child-frame-id", get("camera_frame")]))
     if get("player"):
         actions.append(Node(package="karis_perception", executable="camera_player",
                             name="karis_camera_player", output="screen",
@@ -68,5 +82,15 @@ def generate_launch_description():
         DeclareLaunchArgument("player_rate", default_value="0.0", description="Hz, 0 = recording speed"),
         DeclareLaunchArgument("player_still_s", default_value="20.0",
                               description="photo folders (data/): seconds per photo"),
+        DeclareLaunchArgument("camera_mount", default_value="true",
+                              description="publish the static TF d435_link -> camera_frame"),
+        DeclareLaunchArgument("camera_frame", default_value="head_camera_color_optical_frame"),
+        DeclareLaunchArgument("camera_x", default_value="0.0"),
+        DeclareLaunchArgument("camera_y", default_value="0.015",
+                              description="the colour imager is ~15 mm left of the depth origin"),
+        DeclareLaunchArgument("camera_z", default_value="0.0"),
+        DeclareLaunchArgument("camera_yaw", default_value="-1.5707963"),
+        DeclareLaunchArgument("camera_pitch", default_value="0.0"),
+        DeclareLaunchArgument("camera_roll", default_value="-1.5707963"),
         OpaqueFunction(function=_nodes),
     ])

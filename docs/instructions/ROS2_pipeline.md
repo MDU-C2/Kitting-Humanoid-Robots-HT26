@@ -1,13 +1,13 @@
 # KARIS over ROS 2: camera → vision → motion
 
-Everything off the robot runs **ROS 2 Humble** in Docker. The G1 keeps its own **Foxy** and only publishes its camera and its joint states.
+Everything off the robot runs **ROS 2 Humble** in Docker. The G1 keeps its own **Foxy** and only publishes its camera; its joint states (`rt/lowstate`) are read by the team's MoveIt stack with the Unitree SDK.
 
 ```
- G1 PC2 (Foxy, no Docker)              Vision computer (Docker, all Humble, host network)                  MoveIt container (Humble)
+ G1 PC2 (Foxy, no Docker)              Vision computer (Docker, all Humble, host network)                  MoveIt container (team, Humble)
  ─────────────────────────             ───────────────────────────────────────────────────────            ─────────────────────────
- robot/g1_camera_ros2.py      ───▶     perception  (karis/perception:humble)                     ───▶     g1_state_bridge  /lowstate → /joint_states
+ robot/g1_camera_ros2.py      ───▶     perception  (karis/perception:humble)                     ───▶     g1_readonly_observer + relay → /joint_states
   /g1/head_camera/... (compressed)       detector (YOLO / RF-DETR) + KARIS tracker                          robot_state_publisher → TF
- G1 firmware: /lowstate ──────────┐      FoundationPose (Isaac helper):                                     scene_updater → MoveIt scene
+ G1 firmware: rt/lowstate ───────┐      FoundationPose (Isaac helper):                                     scene_updater → MoveIt scene
                                   │                                                                          pick_server: /karis/pick
                                   │                 ───── /karis/fp/estimate_pose ─────┐                     → move_group
                                   │      /karis/object_poses, TF karis/<id>, services  │
@@ -23,7 +23,7 @@ Everything off the robot runs **ROS 2 Humble** in Docker. The G1 keeps its own *
 ROS 2 distributions can talk to each other when all sides use the same DDS implementation and the messages they share have the same definitions. This is not officially supported, so the setup keeps the shared part small ([discussion](https://discourse.openrobotics.org/t/ros-cross-distribution-communication/27335)):
 
 - **The same DDS everywhere.** Every side uses CycloneDDS 0.10: Unitree's build on the G1 (its own DDS) and Humble's in every container. `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` is set by `karis_ros_env.sh` in the containers and by `start_head_camera.sh` on the robot.
-- **Few messages cross Foxy↔Humble.** Only standard camera messages (`sensor_msgs/CompressedImage`, `CameraInfo`) and the G1's own `unitree_hg/LowState` cross the distribution boundary. Their definitions did not change between Foxy and Humble.
+- **Few messages cross Foxy↔Humble.** Only standard camera messages (`sensor_msgs/CompressedImage`, `CameraInfo`) cross the distribution boundary; their definitions did not change between Foxy and Humble. The joint states are read with the Unitree SDK (`unitree_sdk2_python`) in the MoveIt container, not as ROS messages.
 - **KARIS messages stay on Humble.** `karis_interfaces` messages travel only between the Humble containers.
 
 ## FoundationPose: in the Isaac helper
@@ -69,9 +69,10 @@ Tray slots (classes without a mesh) have `has_orientation: false`; only their po
 | `ros2_ws/src/karis_interfaces` | every container | messages, services, action |
 | `ros2_ws/src/karis_perception` | perception | `pose_estimator`, `camera_player`, `bag_reindex`, `make_isaac_meshes` |
 | `ros2_ws/src/karis_isaac_fp` | isaac_fp | `isaac_fp.launch.py` (Isaac ROS FoundationPose nodes), `fp_bridge` |
-| `ros2_ws/src/karis_task` | MoveIt | `g1_state_bridge`, `pose_listener`, `scene_updater`, `pick_server` |
-| `ros2_ws/src/karis_bringup` | perception, MoveIt | launch files, `config/perception.yaml`, `rviz/karis.rviz` |
-| `ros2_ws/src/unitree_hg` | MoveIt | the G1's messages (from unitree_ros2) |
+| `ros2_ws/src/karis_task` | MoveIt | `pose_listener`, `scene_updater`, `pick_server` |
+| `ros2_ws/src/karis_bringup` | perception, MoveIt | launch files (`perception.launch.py` incl. the camera mount TF, `motion.launch.py`), `config/perception.yaml`, `scripts/observe_g1_tf.sh` (read-only robot model for perception tests) |
+| `ros2_ws/src/g1_description`, `g1_moveit_config`, `g1_xr_bridge` | MoveIt | the team's MoveIt stack: URDF, MoveIt config, XR arm controller, read-only joint-state observer |
+| `ros2_ws/scripts/`, `ros2_ws/deployment/` | | the team's MoveIt container: `install.sh`, `start.sh`, `run_g1.sh` |
 | `ros2_ws/karis_ros_env.sh`, `ros2_ws/build.sh` | every container | environment and build. Each container builds into its own folders (`install_perception/`, `install_isaac/`, `install/`), chosen by `KARIS_ROLE`. |
 | `docker/compose.yaml`, `docker/setup_env.sh`, `docker/.env.example`, `docker/compose.wsl.yaml` | vision computer | the perception and Isaac containers |
 | `docker/perception/Dockerfile` | | Ubuntu 22.04, Humble, PyTorch 2.4 (for YOLO), Ultralytics ≥ 8.4, RF-DETR (own venv); no FoundationPose |
@@ -165,7 +166,7 @@ scp robot/g1_camera_ros2.py robot/start_head_camera.sh unitree@192.168.123.164:~
 
 ### 6. MoveIt container (team image)
 
-`docker/start.sh` starts it on the host network. Inside, run `bash /workspace/build.sh`.
+On the host: `bash ros2_ws/scripts/install.sh` (builds the image and the MoveIt workspace), then `bash ros2_ws/scripts/start.sh` (opens a shell in the container, host network). Inside, build the KARIS motion nodes once: `bash /workspace/build.sh && source /workspace/karis_ros_env.sh`.
 
 ---
 
@@ -188,10 +189,12 @@ ros2 launch karis_isaac_fp isaac_fp.launch.py                      # all classes
 ros2 launch karis_isaac_fp isaac_fp.launch.py classes:="Rund mutter,Ratblock Chamfer"   # less GPU memory
 ```
 
-**MoveIt container:**
+**MoveIt container** (`bash ros2_ws/scripts/start.sh`; each shell: `source /workspace/karis_ros_env.sh`):
 ```bash
-ros2 launch karis_bringup motion.launch.py rviz:=true
+bash /workspace/scripts/run_g1.sh          # the team's MoveIt stack (robot model, move_group, arm control); see its README
+ros2 launch karis_bringup motion.launch.py # second shell: scene_updater, pose_listener, pick_server
 ```
+Perception tests without MoveIt/arm control: `bash /workspace/src/karis_bringup/scripts/observe_g1_tf.sh` instead of `run_g1.sh` (read-only robot model; `--fake` = waist straight, e.g. over WiFi). Never both: they publish the same TF.
 
 **Try it** (any container):
 ```bash
@@ -202,7 +205,7 @@ ros2 action send_goal /karis/pick karis_interfaces/action/PickObject \
 ros2 run rqt_image_view rqt_image_view /karis/viz/annotated        # transport "compressed"
 ```
 
-**Without the robot:** add `player:=...` to the perception launch, and `fake_joints:=true` to the motion launch. Step-by-step tests: photos [ROS2_image_test_quickstart.md](ROS2_image_test_quickstart.md), video [ROS2_video_test_quickstart.md](ROS2_video_test_quickstart.md).
+**Without the robot:** add `player:=...` to the perception launch, and use `observe_g1_tf.sh --fake` for the robot model. Step-by-step tests: photos [ROS2_image_test_quickstart.md](ROS2_image_test_quickstart.md), video [ROS2_video_test_quickstart.md](ROS2_video_test_quickstart.md).
 
 - **A recording:** `player:=$KARIS_DIR/videos/<name>.bag`, or a frame folder with `timestamps.csv`.
 - **The image-test photos:** `player:=$KARIS_DIR/data`. It needs `rgb/`, `depth/` and `cam_K/` subfolders. Each photo is shown as a still camera view for `player_still_s` seconds (default 20). The perception is reset at every new photo, so parts of one photo are not carried into the next. For photos with many parts use e.g. `player_still_s:=40`.
@@ -211,13 +214,13 @@ ros2 run rqt_image_view rqt_image_view /karis/viz/annotated        # transport "
 
 `pick_server` sends each pose (pre-grasp, grasp, lift, slot) to MoveIt's `move_group` on `/move_action`, for the group `planning_group` (default `right_arm`) and the link `ee_link` (default `right_wrist_yaw_link`).
 
-- **Needs a MoveIt config for the G1**, which is not in the repo yet. Until then, use `dry_run: true`.
+- **Needs `move_group`** from the team's MoveIt stack (`g1_moveit_config`, started by `run_g1.sh`). Without it, use `dry_run: true`.
 - **`execute:=false`** plans only; **`execute:=true`** moves the real arm.
 - **During a pick**, the part being picked is taken out of the planning scene. The other parts stay in as obstacles.
 - **Still to do on the robot:**
   - opening and closing the Inspire hand;
   - measuring `grasp_offset_z` and `grasp_rpy_deg` (`ee_link` is the wrist, not the fingertips);
-  - hand-eye calibration of the camera mount (the `camera_*` arguments of `robot_model.launch.py`): tools and steps in [calibration/README.md](../../calibration/README.md).
+  - checking the camera mount (the `camera_*` arguments of `perception.launch.py`): [ROS2_robot_frame_quickstart.md](ROS2_robot_frame_quickstart.md).
 
 ## Troubleshooting
 
@@ -231,6 +234,6 @@ ros2 run rqt_image_view rqt_image_view /karis/viz/annotated        # transport "
 | Isaac helper: out of GPU memory | About 1.5 GB per class: start fewer classes (`classes:=...`), or run the helper on another PC on the robot network. |
 | Isaac helper: timeouts | Check the log of `karis_fp_container`. After a failed registration, Isaac ignores new input of that class for up to 5 s, so the next calls can time out too; they recover on their own. |
 | Bridge says "meshes.yaml is from an older make_isaac_meshes" | Run `make_isaac_meshes` again; the meshes are now written centred. |
-| No `/karis/object_poses_base` | The robot model is not running (MoveIt container), so there is no TF `pelvis → camera`. |
+| No `/karis/object_poses_base` | The robot model is not running (`run_g1.sh` or `observe_g1_tf.sh` in the MoveIt container), so there is no TF `pelvis → camera`. |
 | RViz drops `karis/*` frames | Outputs use the vision computer's clock (`stamp_source: now`); keep that unless chrony syncs the G1. |
 | `InvalidParameterTypeException` | Humble checks types: write decimals, e.g. `-p approach_height:=0.10`. |

@@ -195,15 +195,8 @@ always works on the newest one.
 
 ### Optional: poses in the robot frame
 
-`/karis/object_poses_base` (in `pelvis`) needs the robot model on the motion side. In the
-MoveIt container (`bash docker/start.sh`, then `bash /workspace/build.sh && source /workspace/karis_ros_env.sh`):
-
-```bash
-ros2 launch karis_bringup robot_model.launch.py
-```
-
-Until the camera is calibrated ([Camera_calibration_quickstart.md](Camera_calibration_quickstart.md)),
-these poses use the nominal camera mount and can be off by a centimetre or more.
+`/karis/object_poses_base` (in `pelvis`) needs the robot model in the team's MoveIt container:
+see [ROS2_robot_frame_quickstart.md](ROS2_robot_frame_quickstart.md).
 
 ### Stop
 
@@ -254,5 +247,5 @@ recreate the containers.
 | `serdata.cpp ... invalid data size` / `string data is not null-terminated` | Another ROS 2 program on the network (domain 0, other ROS version) sends messages these cannot decode. Harmless if poses come through. For tests without the robot: `export ROS_DOMAIN_ID=42` in C and D. |
 | Tracking much slower than ~70 ms per part | GPU memory full (`nvidia-smi`): close GPU apps in Windows, restart the containers. |
 | `unknown class '...' (bridge has [...])` + one `frame skipped` | That class is not in the helper's `classes:=`: it gets its position only. Expected with one class. |
-| `No TF pelvis <- head_camera_color_optical_frame yet` | The robot model is not running; `/karis/object_poses` (camera frame) still works. |
+| `No TF pelvis <- head_camera_color_optical_frame yet` | The robot model is not running ([ROS2_robot_frame_quickstart.md](ROS2_robot_frame_quickstart.md)); `/karis/object_poses` (camera frame) still works. |
 | OpenCV window empty or frozen, cannot be opened | The WSL display link is stuck: Windows PowerShell `wsl --shutdown`, open WSL again, start the containers again. Or watch `ros2 run rqt_image_view rqt_image_view /karis/viz/annotated/compressed`. |

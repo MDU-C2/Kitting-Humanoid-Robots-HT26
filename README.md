@@ -54,7 +54,7 @@ The ROS 2 workspace is developed inside a Docker container to provide a consiste
 
 The Docker environment includes **ROS 2 Humble**, **MoveIt 2**, **ros2_control**, **ros2_controllers**, and the required development tools and dependencies. These components do not need to be installed separately on the host system.
 
-For a complete overview of the packages, dependencies, and tools installed in the development environment, see the [`Dockerfile`](Dockerfile).
+For a complete overview of the packages, dependencies, and tools installed in the development environment, see [`ros2_ws/deployment/Dockerfile`](ros2_ws/deployment/Dockerfile).
 
 ### Prerequisites
 
@@ -81,8 +81,15 @@ git clone https://github.com/MDU-C2/Kitting-Humanoid-Robots-HT26.git
 cd Kitting-Humanoid-Robots-HT26
 ```
 
-Start the development environment with:
+Build the MoveIt environment once (Docker image, pinned XR/Unitree sources, workspace, offline tests), then open it:
 
 ```bash
-./docker/start.sh
+bash ros2_ws/scripts/install.sh
+bash ros2_ws/scripts/start.sh
 ```
+
+Connecting to the physical G1 from inside the container: `bash /workspace/scripts/run_g1.sh --check` (read-only), then `bash /workspace/scripts/run_g1.sh` (supervised arm control).
+
+### Perception (camera → part poses)
+
+The perception and the Isaac FoundationPose helper run in their own containers (`docker/compose.yaml`). Setup and daily use: [`docs/instructions/ROS2_pipeline.md`](docs/instructions/ROS2_pipeline.md); live test on the robot: [`docs/instructions/ROS2_live_camera_quickstart.md`](docs/instructions/ROS2_live_camera_quickstart.md); poses in the robot frame (`pelvis`) together with the MoveIt container: [`docs/instructions/ROS2_robot_frame_quickstart.md`](docs/instructions/ROS2_robot_frame_quickstart.md).
