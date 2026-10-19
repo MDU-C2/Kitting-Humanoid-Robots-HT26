@@ -242,7 +242,7 @@ class PickServer(Node):
                 result.message = f"{state}: {text}"
                 return result
             if state == "grasping" and not plan_only:
-                pass   # TODO: close the Inspire hand here (unitree_hg/HandCmd or the hand's own topic)
+                pass   # TODO: close the Inspire hand here (the Inspire hand's own SDK/topic)
             if state == "placing" and not plan_only:
                 pass   # TODO: open the hand
 

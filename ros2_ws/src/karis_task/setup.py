@@ -18,7 +18,6 @@ setup(
     license="MIT",
     entry_points={
         "console_scripts": [
-            "g1_state_bridge = karis_task.g1_state_bridge:main",
             "pose_listener = karis_task.pose_listener:main",
             "scene_updater = karis_task.scene_updater:main",
             "pick_server = karis_task.pick_server:main",

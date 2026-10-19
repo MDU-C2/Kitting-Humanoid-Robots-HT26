@@ -10,7 +10,7 @@
 #   docker compose -f docker/compose.yaml down                      # stop
 # On WSL add  -f docker/compose.wsl.yaml  after compose.yaml (GPU libraries of WSL).
 #
-# The MoveIt container stays the team's docker/start.sh (it is on the host network too).
+# The MoveIt container is the team's: ros2_ws/scripts/install.sh + start.sh (host network too).
 
 x-ros: &ros
   network_mode: host
