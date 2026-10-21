@@ -1,12 +1,6 @@
-# Part classes the pose estimator gives a full 6D pose (FoundationPose), with their CAD mesh.
-# The class names must match the detector's class names exactly (capitals and spaces count).
-# Classes the detector knows but that are not listed here get their 3D position only.
-#
-#   mesh:  file in this package's meshes/ folder (or an absolute path)
-#   scale: 1.0 if the mesh is in metres, 0.001 if it is in millimetres
-#
-# After changing this file: rebuild (bash $KARIS_WS/build.sh) and run
-#   ros2 run karis_perception make_isaac_meshes        (meshes for the Isaac helper)
+# Classes with a CAD mesh get a 6D pose; other detector classes get a position only.
+# Names must match the detector's class names exactly. mesh: file in meshes/ or absolute
+# path; scale: 0.001 for millimetres. After changes, rebuild and run make_isaac_meshes.
 classes:
   Rund mutter:         {mesh: 11432713.stl, scale: 0.001}
   Ihalig bojd kvadrat: {mesh: 15129400.stl, scale: 0.001}

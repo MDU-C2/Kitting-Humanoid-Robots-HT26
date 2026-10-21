@@ -1,31 +1,10 @@
-"""
-KARIS bridge to NVIDIA Isaac ROS FoundationPose (TensorRT). Runs in the Isaac helper
-container next to the Isaac ROS FoundationPose nodes (one estimation + one tracking
-node per part class, started by isaac_fp.launch.py).
+"""Bridge between /karis/fp/estimate_pose and the Isaac ROS FoundationPose nodes.
 
-The KARIS perception node (backend:=isaac) keeps doing detection and the bookkeeping of
-every part; for each FoundationPose step it calls the service
-
-    /karis/fp/estimate_pose   karis_interfaces/srv/EstimatePose
-
-and this bridge turns the call into Isaac ROS messages:
-  register: colour (rgb8), depth (32FC1, m), camera_info and the part's mask (mono8)
-            -> /karis_fp/<class>/pose_estimation/*   -> pose_estimation/output
-  track:    colour, depth, camera_info and the part's last pose (TensorList)
-            -> /karis_fp/<class>/tracking/*          -> tracking/output
-The Isaac nodes handle one object per message, so several parts of one class are done
-one after the other (each request gets its own stamp: frame stamp + k ms). The
-tracking state of every part (Isaac's pose TensorList) is kept here, by track_id.
-
-Frames are cached by stamp, so the perception node sends the compressed images only
-with the first request of a frame.
-
-Parameters: meshes_yaml (made by make_isaac_meshes), classes ("" = all in the yaml),
-register_timeout_s (10.0), track_timeout_s (2.0), cache_frames (4).
-
-Pose frames: the OBJs are centred on their bounding box (make_isaac_meshes), so Isaac's
-pose is that of the centred mesh, P_c. The CAD frame (what PyTorch FoundationPose and the
-rest of KARIS use) is P_c * T(-c), with c = center_m from meshes.yaml.
+Each request is published to /karis_fp/<class>/pose_estimation/* (register) or
+/karis_fp/<class>/tracking/* (track) with a unique stamp (frame stamp + k ms), and the
+outputs with that stamp are returned. Tracking state is kept per track_id, and frames are
+cached by stamp so the client sends the images only once per frame. Isaac's poses refer to
+the centred mesh and are converted to the CAD frame with center_m from meshes.yaml.
 """
 import array
 import copy
@@ -50,9 +29,9 @@ from karis_interfaces.srv import EstimatePose
 PUB_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
 SUB_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=10)
 PNG_MAGIC = b"\x89PNG"
-STAMP_STEP_NS = 1_000_000   # requests of one frame get stamps frame + k ms (k < 50)
+STAMP_STEP_NS = 1_000_000   # request stamp = frame stamp + k ms, k < STAMP_SEQ_N
 STAMP_SEQ_N = 50
-STAMP_TOL_NS = 400_000      # outputs match their request within 0.4 ms (stamps may pass through float seconds)
+STAMP_TOL_NS = 400_000      # output/request stamp match tolerance
 
 
 def quat_to_rot(x, y, z, w):
@@ -75,7 +54,7 @@ def ns_to_stamp(ns, like):
 
 
 class Waiter:
-    """Collects the two outputs (Detection3DArray + pose TensorList) of one request."""
+    """Collects the Detection3DArray and pose TensorList of one request."""
 
     def __init__(self, stamp):
         self.stamp = stamp
@@ -93,16 +72,16 @@ class Waiter:
 
 
 class ClassPipe:
-    """Topics of the Isaac ROS FoundationPose nodes of one part class."""
+    """Isaac ROS FoundationPose topics of one part class."""
 
     def __init__(self, node, name, slug, center, cb):
         self.name, self.slug = name, slug
-        self.center = np.asarray(center, dtype=np.float64)   # CAD-frame centre of the mesh
+        self.center = np.asarray(center, dtype=np.float64)   # mesh centre in the CAD frame
         self.lock = threading.Lock()          # one request at a time per class
         self.waiter = None
         self.seq = 0
         self.log = node.get_logger()
-        self.seen = {"det": 0, "mat": 0}       # outputs received from the Isaac nodes (any stamp)
+        self.seen = {"det": 0, "mat": 0}       # outputs received (any stamp)
         self.unmatched = 0
         ns = f"/karis_fp/{slug}"
         pub = lambda t, n: node.create_publisher(t, f"{ns}/{n}", PUB_QOS)   # noqa: E731
@@ -130,9 +109,7 @@ class ClassPipe:
         msg = det if det is not None else mat
         if w is None:
             return
-        # Isaac's outputs carry the input stamp (estimation: the depth's, tracking: the
-        # pose_input's; both are the request's). Anything else is a late answer to an
-        # earlier request that timed out, and is dropped.
+        # outputs carry the request stamp; others are late answers to timed-out requests
         diff = stamp_ns(msg.header.stamp) - w.stamp
         if abs(diff) <= STAMP_TOL_NS:
             w.offer(det=det, mat=mat)
@@ -143,7 +120,7 @@ class ClassPipe:
                           throttle_duration_sec=2.0)
 
     def diagnose(self, mode):
-        """Why did a request get no answer? Text for the timeout message."""
+        """Explanation for a timeout."""
         pubs = self.est_pub if mode == "register" else self.trk_pub
         subs = ", ".join(f"{k} {p.get_subscription_count()}" for k, p in pubs.items())
         txt = (f"Isaac subscribers on the {mode} inputs: {subs}; outputs received for this class "
@@ -176,7 +153,7 @@ class FpBridge(Node):
             if "center_m" not in m:
                 raise RuntimeError(f"{meshes_yaml} is from an older make_isaac_meshes: run it again")
             self.pipes[name] = ClassPipe(self, name, m["slug"], m["center_m"], cb)
-        self.states = OrderedDict()            # track_id -> last pose TensorList (newest last)
+        self.states = OrderedDict()            # track_id -> last pose TensorList
         self.max_states = 500
         self.frames = OrderedDict()            # frame stamp ns -> (rgb Image, depth Image)
         self.frames_lock = threading.Lock()
@@ -219,7 +196,7 @@ class FpBridge(Node):
 
     @staticmethod
     def _restamp(msg, st):
-        """Shallow copy with a new stamp (the image data is shared, not copied)."""
+        """Shallow copy with a new stamp."""
         m = copy.copy(msg)
         m.header = copy.copy(msg.header)
         m.header.stamp = st
@@ -255,7 +232,7 @@ class FpBridge(Node):
 
         with pipe.lock:
             pipe.seq = (pipe.seq + 1) % STAMP_SEQ_N
-            ns = stamp_ns(req.color.header.stamp) + pipe.seq * STAMP_STEP_NS   # unique per request
+            ns = stamp_ns(req.color.header.stamp) + pipe.seq * STAMP_STEP_NS
             st = ns_to_stamp(ns, req.color.header.stamp)
             w = pipe.waiter = Waiter(ns)
             info = self._restamp(req.camera_info, st)
@@ -297,10 +274,10 @@ class FpBridge(Node):
         o = pose.orientation
         T[:3, :3] = quat_to_rot(o.x, o.y, o.z, o.w)
         T[:3, 3] = (pose.position.x, pose.position.y, pose.position.z)
-        T[:3, 3] -= T[:3, :3] @ pipe.center         # centred mesh -> CAD frame: P_c * T(-c)
+        T[:3, 3] -= T[:3, :3] @ pipe.center         # centred mesh -> CAD frame
         self.states[req.track_id] = w.mat
         self.states.move_to_end(req.track_id)
-        while len(self.states) > self.max_states:  # parts registered again get new ids
+        while len(self.states) > self.max_states:
             self.states.popitem(last=False)
         res.pose = [float(v) for v in T.reshape(-1)]
         res.success, res.message = True, req.mode

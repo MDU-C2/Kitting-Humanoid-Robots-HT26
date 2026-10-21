@@ -1,10 +1,6 @@
-"""
-KARIS vision helpers shared by the pose estimator and the tracker: detection post-processing
-(mask cleanup, stable ids), the 3D centre of parts without a mesh, rotation helpers, colours,
-and the part classes (config/classes.yaml).
+"""Detection post-processing (mask cleanup, ids), mask centres, rotation helpers and part classes.
 
-Settings below are defaults; the pose estimator node sets them from its ROS parameters
-(karis_bringup/config/perception.yaml).
+The module-level settings are defaults; the pose estimator sets them from perception.yaml.
 """
 from __future__ import annotations
 
@@ -15,15 +11,15 @@ import numpy as np
 
 from karis_perception import detectors
 
-# ------------------------------------------------------------ settings (set by the node)
+# ------------------------------------------------------------ settings
 CONFIDENCE = 0.6          # detector confidence threshold
 IOU = 0.6                 # detector NMS IoU
 DEVICE = 0                # GPU index for YOLO
 MIN_MASK_AREA_PX = 300    # smaller masks are ignored
 MIN_VALID_DEPTH_PX = 50   # a part needs this many depth pixels in its mask
-ROI = None                # (x1, y1, x2, y2) in pixels, or None: only parts whose centre is inside
+ROI = None                # (x1, y1, x2, y2) px: ignore parts whose centre is outside
 MIN_DEPTH_M, MAX_DEPTH_M = 0.1, 3.0
-REG_ITERATIONS = 3        # refinement steps per registration (the local FoundationPose only)
+REG_ITERATIONS = 3        # refinement steps per registration
 
 
 # ------------------------------------------------------------ classes

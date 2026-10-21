@@ -1,18 +1,8 @@
-"""
-Repairs a RealSense / ROS 1 .bag that was not closed properly ("Bag unindexed"): the
-recording program was killed, or the file was copied while it was still being written.
-The frames are in the file, but the index at the end is missing, and pyrealsense2 (like
-ROS 1's rosbag) cannot open it without. This rebuilds the index, like `rosbag reindex`,
-without needing ROS 1. A last chunk cut off in the middle is dropped.
+"""Rebuild the index of an unindexed ROS 1 / RealSense .bag (like `rosbag reindex`, without ROS 1).
 
-    ros2 run karis_perception bag_reindex $KARIS_DIR/videos/test_video.bag
-        -> writes $KARIS_DIR/videos/test_video.reindexed.bag (the original is not changed)
-    ros2 run karis_perception bag_reindex in.bag -o out.bag
+    ros2 run karis_perception bag_reindex in.bag [-o out.bag]    (default: in.reindexed.bag)
 
-The camera player runs this by itself when it finds an unindexed bag.
-
-Format: ROS bag 2.0 (http://wiki.ros.org/Bags/Format/2.0). Chunks compressed with lz4
-need the Python package lz4 (pip install lz4); bz2 and uncompressed need nothing.
+Format: ROS bag 2.0. lz4 chunks need the lz4 package. A truncated last chunk is dropped.
 """
 import argparse
 import bz2
@@ -139,7 +129,7 @@ def reindex(src, dst, log=print):
             if o == OP_CHUNK:
                 try:
                     raw = decompress(h["compression"], d, u32(h["size"]))
-                except Exception as e:      # last chunk cut off / corrupt
+                except Exception as e:      # truncated or corrupt last chunk
                     log(f"  chunk at byte {pos}: {e}; dropped")
                     cut = True
                     break
@@ -163,7 +153,7 @@ def reindex(src, dst, log=print):
                 f.seek(end)
             elif o == OP_CONN:
                 conns.setdefault(u32(h["conn"]), (h, d))
-            # old index data / chunk info records are rebuilt, so skipped here
+            # index and chunk info records are rebuilt
     if not chunks:
         raise BagError(f"{src}: no complete chunk with messages found")
 
@@ -208,7 +198,7 @@ def reindex(src, dst, log=print):
 def is_indexed(path):
     with open(path, "rb") as f:
         if f.read(len(MAGIC)) != MAGIC:
-            return True                       # not ours to judge
+            return True                       # not a bag 2.0 file
         r = read_record(f)
     return r is not None and struct.unpack("<Q", r[0].get("index_pos", b"\0" * 8))[0] != 0
 

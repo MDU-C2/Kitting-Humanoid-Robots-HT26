@@ -1,21 +1,6 @@
-"""
-KARIS detectors: model picker + YOLO and RF-DETR backends with one interface.
+"""YOLO and RF-DETR detectors with a common predict() interface.
 
-    from karis_perception.detectors import choose_model, load_detector
-    det = load_detector(choose_model(models_dir))      # asks which model to use
-    det.names                                           # {class_id: class_name}
-    raw = det.predict(bgr, conf, timing)                # list of (cls_id, conf, box, mask or None)
-
-YOLO (.pt, Ultralytics) runs in this process.
-
-RF-DETR (.pth) needs newer PyTorch/transformers than the ROS Python, so it runs in a
-helper process, rfdetr_server.py (next to this file), in its own Python (the image's
-/opt/rfdetr-venv, KARIS_RFDETR_PYTHON), and the images are sent to it over a local socket.
-The helper is started automatically; a helper already running on the port is used instead:
-    /opt/rfdetr-venv/bin/python <this folder>/rfdetr_server.py --model <models>/RF_DETR_m.pth
-
-Models that only give boxes (RF-DETR detection) get a mask from the depth image:
-inside the box, the pixels that stand out from the surface around the box.
+RF-DETR runs in a separate process (rfdetr_server.py) with its own Python environment.
 """
 from __future__ import annotations
 
@@ -41,15 +26,13 @@ BOX_MASK_MODE = "depth"        # boxes without a mask: "depth" (object pixels) o
 OBJECT_MIN_HEIGHT_M = 0.004    # "depth" mode: pixels this much above the surrounding surface
 
 
-# ============================================================
-# Model picker
-# ============================================================
+# --- model selection
 def model_kind(path: Path) -> str:
     return "YOLO" if path.suffix.lower() == ".pt" else "RF-DETR"
 
 
 def pop_model_arg(argv):
-    """Removes '--model X' from argv (so scripts can use their other arguments) and returns X."""
+    """Remove '--model X' from argv and return X."""
     if "--model" in argv:
         i = argv.index("--model")
         val = argv[i + 1] if i + 1 < len(argv) else None
@@ -59,9 +42,7 @@ def pop_model_arg(argv):
 
 
 def choose_model(models_dir: Path, choice: str | None = None) -> Path:
-    """Lists the models in models_dir and asks which one to use.
-    `choice` (a number or a file name, e.g. from --model) skips the question.
-    Enter picks the model used last time."""
+    """Pick a model in models_dir: `choice` (number or file name), else ask; default is the last used."""
     models = sorted(p for p in models_dir.iterdir()
                     if p.is_file() and p.suffix.lower() in MODEL_EXTS) if models_dir.exists() else []
     if not models:
@@ -97,9 +78,7 @@ def choose_model(models_dir: Path, choice: str | None = None) -> Path:
 
 
 def load_detector(path: Path, image_size=0, device=0, iou=0.6, fallback_size=640, log=print):
-    """YOLO (.pt) or RF-DETR (.pth). image_size: YOLO input size in px; 0 = the size the
-    model was trained at (fallback_size if the checkpoint does not say). RF-DETR sets its
-    own input size."""
+    """YOLO (.pt) or RF-DETR (.pth). image_size 0 = the YOLO training size."""
     path = Path(path)
     if model_kind(path) == "YOLO":
         det = YoloDetector(path, fallback_size, device, iou)
@@ -120,8 +99,7 @@ def load_detector(path: Path, image_size=0, device=0, iou=0.6, fallback_size=640
 
 
 def yolo_train_imgsz(yolo):
-    """Image size an Ultralytics YOLO .pt was trained at, or None. Ultralytics keeps the
-    training arguments in the checkpoint ('train_args') and copies imgsz into overrides."""
+    """Training image size stored in a YOLO checkpoint, or None."""
     ck = getattr(yolo, "ckpt", None)
     sources = [getattr(yolo, "overrides", None),
                ck.get("train_args") if isinstance(ck, dict) else None,
@@ -139,7 +117,7 @@ def yolo_train_imgsz(yolo):
 
 
 class _Tee:
-    """Sends everything printed to the terminal AND to a file."""
+    """Writes to a stream and a file."""
 
     def __init__(self, stream, path):
         self.stream, self.file = stream, open(path, "w", encoding="utf-8")
@@ -153,13 +131,12 @@ class _Tee:
         self.stream.flush()
         self.file.flush()
 
-    def __getattr__(self, name):          # isatty, encoding, ... from the terminal
+    def __getattr__(self, name):
         return getattr(self.stream, name)
 
 
 def save_console(out_dir: Path, name="summary.txt"):
-    """From now on, everything the script prints is also saved in out_dir/summary.txt
-    (FoundationPose's own debug log is not included)."""
+    """Also write everything printed to out_dir/name."""
     import datetime
     if not isinstance(sys.stdout, _Tee):
         sys.stdout = _Tee(sys.stdout, Path(out_dir) / name)
@@ -168,16 +145,14 @@ def save_console(out_dir: Path, name="summary.txt"):
 
 
 def write_model_info(out_dir: Path, det):
-    """Records which model produced the results in out_dir (read by copy_results.sh)."""
+    """Write the model file name to out_dir/model.txt."""
     try:
         (Path(out_dir) / "model.txt").write_text(f"{det.model_file}\n")
     except OSError:
         pass
 
 
-# ============================================================
-# YOLO
-# ============================================================
+# --- YOLO
 class YoloDetector:
     kind = "YOLO"
 
@@ -210,9 +185,7 @@ class YoloDetector:
                 for i in range(len(cls))]
 
 
-# ============================================================
-# RF-DETR (client of rfdetr_server.py)
-# ============================================================
+# --- RF-DETR (client of rfdetr_server.py)
 def _send(sock, obj: dict, payload: bytes = b""):
     head = json.dumps(obj).encode()
     sock.sendall(struct.pack("!II", len(head), len(payload)) + head + payload)
@@ -257,7 +230,6 @@ class RFDETRDetector:
         if not self.has_masks:
             print(f"  Boxes only: masks are made from depth inside each box ({BOX_MASK_MODE} mode).")
 
-    # --- helper process ---
     def _try_connect(self):
         try:
             s = socket.create_connection(("127.0.0.1", RFDETR_PORT), timeout=2)
@@ -306,12 +278,11 @@ class RFDETRDetector:
         if self.proc is not None and self.proc.poll() is None:
             self.proc.terminate()
 
-    # --- inference ---
     def warmup(self):
         self.predict(np.zeros((480, 640, 3), np.uint8), 0.5)
 
     def _name_index(self, cid):
-        if self.offset is None:            # auto: ids index the name list unless they run past it
+        if self.offset is None:
             return cid
         return cid + self.offset
 
@@ -346,14 +317,10 @@ class RFDETRDetector:
         return out
 
 
-# ============================================================
-# Box -> mask from depth (for detectors without masks)
-# ============================================================
+# --- mask from depth for box-only detections
 def box_mask(box, shape, depth=None, mode=None):
-    """Mask for a detection that only has a box. In "depth" mode the surface around
-    the box (a ring just outside it) is fitted with a plane, and the pixels inside
-    the box that stand OBJECT_MIN_HEIGHT_M above that plane are the object.
-    Falls back to the whole box if that does not work."""
+    """Mask for a box-only detection: pixels in the box more than OBJECT_MIN_HEIGHT_M above
+    a plane fitted to a ring around the box ("depth" mode), else the whole box."""
     mode = mode or BOX_MASK_MODE
     h, w = shape[:2]
     x1, y1, x2, y2 = [int(round(v)) for v in box]
@@ -389,7 +356,7 @@ def box_mask(box, shape, depth=None, mode=None):
         plane_z = np.where(plane_inv > 0, 1.0 / plane_inv, 0)
     d = depth[y1:y2, x1:x2]
     obj = (d > 0) & (plane_z > 0) & (d < plane_z - OBJECT_MIN_HEIGHT_M)
-    if np.count_nonzero(obj) < 0.08 * obj.size:  # nothing stands out: keep the box
+    if np.count_nonzero(obj) < 0.08 * obj.size:
         return full
     m = np.zeros((h, w), np.uint8)
     m[y1:y2, x1:x2] = obj.astype(np.uint8) * 255

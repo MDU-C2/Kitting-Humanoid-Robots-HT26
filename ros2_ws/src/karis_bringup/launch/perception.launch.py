@@ -1,19 +1,9 @@
-"""KARIS perception (perception container, ROS 2 Humble):
+"""Pose estimator, camera mount TF and optional camera player (perception container).
 
-    ros2 launch karis_bringup perception.launch.py                         # G1 head camera
-    ros2 launch karis_bringup perception.launch.py model:=best8s.pt show:=true
-    ros2 launch karis_bringup perception.launch.py confidence:=0.6         # detector threshold
-    ros2 launch karis_bringup perception.launch.py redetect_every:=5        # detector every 5 frames
-    ros2 launch karis_bringup perception.launch.py image_size:=1280        # YOLO size (default: as trained)
-    ros2 launch karis_bringup perception.launch.py player:=/home/kimsv/Kitting-Humanoid-Robots-HT26/local_data/videos/x.bag   # no robot
-    ros2 launch karis_bringup perception.launch.py player:=/home/kimsv/Kitting-Humanoid-Robots-HT26/local_data/data           # the test photos
+    ros2 launch karis_bringup perception.launch.py model:=best8s.pt [player:=<bag or folder>]
 
-Camera mount: also publishes the static TF d435_link -> head_camera_color_optical_frame
-(camera_mount:=true, the default). The robot model (robot_state_publisher in the team's MoveIt
-stack, or karis_bringup/scripts/observe_g1_tf.sh) publishes pelvis -> ... -> d435_link, so
-together TF has pelvis -> camera and the node publishes /karis/object_poses_base. The values
-are the nominal colour-imager position relative to the URDF's d435_link (x forward, z up;
-optical frame = z forward, x right); correct them with camera_x/y/z/yaw/pitch/roll (m, rad).
+The static TF d435_link -> camera_frame is the nominal colour imager pose; adjust it with
+camera_x/y/z/yaw/pitch/roll (m, rad).
 """
 import os
 
@@ -65,7 +55,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("params_file", default_value=os.path.join(share, "config", "perception.yaml")),
         DeclareLaunchArgument("model", default_value="", description="model file in models/ ('' = last used)"),
-        DeclareLaunchArgument("backend", default_value="", description="isaac (the only one; kept for older commands)"),
+        DeclareLaunchArgument("backend", default_value="", description="isaac"),
         DeclareLaunchArgument("target_frame", default_value="", description="'' = value in perception.yaml"),
         DeclareLaunchArgument("show", default_value="", description="true = OpenCV window"),
         DeclareLaunchArgument("confidence", default_value="",

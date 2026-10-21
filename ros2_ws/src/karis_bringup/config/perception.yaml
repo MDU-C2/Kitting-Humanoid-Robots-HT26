@@ -1,11 +1,9 @@
-# KARIS perception (pose estimator) settings.
-# The part classes and their CAD meshes: karis_perception/config/classes.yaml.
-# Change a value here, rebuild (bash $KARIS_WS/build.sh), or override it for one run with
-# the launch argument of the same name (model:=, confidence:=, redetect_every:=, image_size:=).
+# Pose estimator settings. Rebuild after changing; model, confidence, redetect_every and
+# image_size can also be set as launch arguments. Part classes: karis_perception/config/classes.yaml.
 karis_pose_estimator:
   ros__parameters:
     # --- files
-    karis_dir: ""                 # local data folder (models/, data/, ...); "" = $KARIS_DIR (<repo>/karis)
+    karis_dir: ""                 # "" = $KARIS_DIR (<repo>/local_data)
     models_dir: ""                # "" = <karis_dir>/models
     model: ""                     # file in models/ (.pt YOLO, .pth RF-DETR); "" = last used
     classes_file: ""              # "" = karis_perception/config/classes.yaml
@@ -19,11 +17,10 @@ karis_pose_estimator:
     # --- pose (FoundationPose in the Isaac helper)
     backend: isaac                # the only option
     isaac_service: /karis/fp/estimate_pose
-    isaac_timeout_s: 25.0         # > the helper's register timeout (20 s, first call warms up TensorRT)
-    max_register: 1               # registrations per frame after the start (0 = all at once)
+    isaac_timeout_s: 25.0         # longer than the helper's register timeout
+    max_register: 1               # registrations per frame after the first (0 = all)
     reregister_iou: 0.2           # drift check: register a part again if mesh/mask overlap drops below this
-    settle_reregister: true       # register a part again when it comes to rest after moving (fixes
-                                  #   tracking that locked onto a wrong orientation during the move)
+    settle_reregister: true       # register a part again when it comes to rest after moving
     settle_move_m: 0.02           # "moved" = more than this (or 15 deg) away from its last registration
     settle_still_s: 0.5           # "at rest" = still for this long
     min_valid_depth_px: 50        # a part needs this many depth pixels in its mask
@@ -40,8 +37,8 @@ karis_pose_estimator:
     target_frame: pelvis          # also publish /karis/object_poses_base in this frame ("" = off)
     tf_prefix: karis/             # TF child frames karis/<object_id>
     publish_tf: true
-    stamp_source: now             # now = laptop clock (G1 and laptop clocks may differ); camera = image stamps (needs chrony)
+    stamp_source: now             # now = local clock; camera = image stamps (needs synced clocks)
     publish_annotated: true       # /karis/viz/annotated/compressed
     annotated_jpeg_quality: 80
     show: false                   # also an OpenCV window (R reset, D detect, Q quit)
-    show_scale: 2.0               # size of that window relative to the image (1 = 640x480, 2 = 1280x960)
+    show_scale: 2.0               # window size relative to the image

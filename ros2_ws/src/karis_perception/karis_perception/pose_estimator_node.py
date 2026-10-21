@@ -1,41 +1,16 @@
-"""
-KARIS pose estimator node: RGB-D from the G1 head camera (ROS 2 topics) ->
-detector (YOLO / RF-DETR) -> FoundationPose 6D pose + tracking of every part ->
-ROS 2 topics, TF and a service for motion planning.
+"""KARIS pose estimator: G1 RGB-D topics -> detector -> FoundationPose (Isaac helper) -> part poses.
 
-The detector (detectors.py), the tracker (tracker.py) and the part classes with their meshes
-(config/classes.yaml, meshes/) are in this package. Only the trained models come from the
-local data folder (KARIS_DIR/models, not in git). Settings: karis_bringup/config/perception.yaml.
-
-FoundationPose itself runs in the Isaac helper container: NVIDIA Isaac ROS FoundationPose
-(TensorRT), reached through the service /karis/fp/estimate_pose (karis_isaac_fp). This
-node only runs the detector and the tracking bookkeeping; the drift check and the drawing
-are done on the CPU (isaac_backend). The perception image has no FoundationPose of its own.
-
-Runs in the perception container (ROS 2 Humble):
-    ros2 launch karis_bringup perception.launch.py model:=best8s.pt [backend:=isaac]
-  or without launch:
-    ros2 run karis_perception pose_estimator --ros-args -p model:=best8s.pt
-
-Subscribes (parameters color_topic, depth_topic, info_topic; '.../compressed' and
-'.../compressedDepth' topics are decoded here, others are raw sensor_msgs/Image):
-    /g1/head_camera/color/image_raw/compressed
-    /g1/head_camera/aligned_depth_to_color/image_raw/compressedDepth
-    /g1/head_camera/color/camera_info
+    ros2 launch karis_bringup perception.launch.py model:=best8s.pt
 
 Publishes:
-    /karis/object_poses        karis_interfaces/ObjectPoseArray  poses in the camera frame
-    /karis/object_poses_base   karis_interfaces/ObjectPoseArray  the same in target_frame (e.g.
-                               pelvis), when TF from the robot model is available
-    /tf                        <camera frame> -> karis/<object_id>  for every part
-    /karis/markers             visualization_msgs/MarkerArray  boxes + names for RViz
-    /karis/viz/annotated/compressed   sensor_msgs/CompressedImage  the live overlay
-                               (rqt_image_view /karis/viz/annotated, transport "compressed")
+    /karis/object_poses               ObjectPoseArray in the camera frame
+    /karis/object_poses_base          ObjectPoseArray in target_frame (needs TF from the robot model)
+    /tf                               <camera frame> -> karis/<object_id>
+    /karis/markers                    MarkerArray
+    /karis/viz/annotated/compressed   CompressedImage
 Services:
-    /karis/get_objects   karis_interfaces/GetObjects   current parts, optionally in another frame
-    /karis/reset         std_srvs/Trigger   forget all parts, detect + register again
-    /karis/detect_now    std_srvs/Trigger   run the detector on the next frame
-    /karis/reregister    std_srvs/Trigger   register every tracked part again (e.g. before a grasp)
+    /karis/get_objects   GetObjects
+    /karis/reset, /karis/detect_now, /karis/reregister   std_srvs/Trigger
 """
 from __future__ import annotations
 
@@ -51,7 +26,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile
 try:
     from rclpy.qos import ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
-except ImportError:                     # older rclpy names
+except ImportError:
     from rclpy.qos import (QoSReliabilityPolicy as ReliabilityPolicy,
                            QoSHistoryPolicy as HistoryPolicy, QoSDurabilityPolicy as DurabilityPolicy)
 from rclpy.time import Time
@@ -69,20 +44,18 @@ from karis_perception import ros_convert as rc
 
 IMAGE_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
                        history=HistoryPolicy.KEEP_LAST, depth=2)
-# camera_info: reliable + volatile matches every publisher (volatile and transient-local)
+# volatile matches both volatile and transient-local publishers
 INFO_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST,
                       depth=1, durability=DurabilityPolicy.VOLATILE)
 POSE_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                       history=HistoryPolicy.KEEP_LAST, depth=5)
 WINDOW = "KARIS pose estimator (ROS 2)"
-# the local data folder is local_data/ in the repo (next to ros2_ws)
 KARIS_DIR_GUESSES = [str(Path(os.environ["KARIS_WS"]).parent / "local_data")] if os.environ.get("KARIS_WS") else []
 KARIS_DIR_GUESSES.append(str(Path.home() / "Kitting-Humanoid-Robots-HT26" / "local_data"))
 
 
 def find_karis_dir(param_value):
-    """The local data folder (models/, meshes_isaac/, data/, videos/): the parameter
-    karis_dir, $KARIS_DIR, or local_data/ next to ros2_ws."""
+    """Local data folder: the karis_dir parameter, $KARIS_DIR, or local_data/ next to ros2_ws."""
     for d in [param_value, os.environ.get("KARIS_DIR", "")] + KARIS_DIR_GUESSES:
         if d and (Path(d) / "models").is_dir():
             return Path(d).resolve()
@@ -102,35 +75,34 @@ class PoseEstimatorNode(Node):
                              "/g1/head_camera/aligned_depth_to_color/image_raw/compressedDepth")
         self.info_topic = p("info_topic", "/g1/head_camera/color/camera_info")
         self.depth_scale = float(p("depth_scale", 0.001))     # 16UC1 units -> m
-        self.max_dt = float(p("max_stamp_diff", 0.04))        # colour/depth pairing [s]
-        self.camera_frame = p("camera_frame", "")             # "" = frame_id of the images
-        self.target_frame = p("target_frame", "pelvis")       # "" = no /karis/object_poses_base
+        self.max_dt = float(p("max_stamp_diff", 0.04))        # [s]
+        self.camera_frame = p("camera_frame", "")
+        self.target_frame = p("target_frame", "pelvis")
         self.tf_prefix = p("tf_prefix", "karis/")
         self.publish_tf = bool(p("publish_tf", True))
-        # "now": outputs stamped with this computer's clock (works when the G1 and the laptop
-        # clocks differ); "camera": the image stamps (needs chrony/NTP on both computers)
+        # "now" = local clock, "camera" = image stamps (needs synced clocks)
         self.stamp_source = p("stamp_source", "now")
         self.publish_annotated = bool(p("publish_annotated", True))
         self.annotated_quality = int(p("annotated_jpeg_quality", 80))
         self.show = bool(p("show", False))
-        self.show_scale = float(p("show_scale", 2.0))         # window size relative to the image (2 = twice)
-        self.models_dir = str(p("models_dir", "") or "")       # "" = <karis_dir>/models
-        self.classes_file = str(p("classes_file", "") or "")   # "" = this package's config/classes.yaml
-        self.confidence = float(p("confidence", 0.6))         # detector confidence threshold
-        self.iou = float(p("iou", 0.6))                       # detector NMS IoU
-        self.device = int(p("device", 0))                     # GPU index for YOLO
+        self.show_scale = float(p("show_scale", 2.0))
+        self.models_dir = str(p("models_dir", "") or "")
+        self.classes_file = str(p("classes_file", "") or "")
+        self.confidence = float(p("confidence", 0.6))
+        self.iou = float(p("iou", 0.6))
+        self.device = int(p("device", 0))
         self.min_mask_area = int(p("min_mask_area_px", 300))
         self.min_valid_depth = int(p("min_valid_depth_px", 50))
-        self.min_depth = float(p("min_depth_m", 0.1))         # depth outside this range is ignored
+        self.min_depth = float(p("min_depth_m", 0.1))
         self.max_depth = float(p("max_depth_m", 3.0))
         self.redetect_every = int(p("redetect_every", 5))
-        self.reregister_iou = float(p("reregister_iou", 0.2))  # drift check: register again below this
-        self.settle = bool(p("settle_reregister", True))       # register again when a part comes to rest
+        self.reregister_iou = float(p("reregister_iou", 0.2))
+        self.settle = bool(p("settle_reregister", True))
         self.settle_move = float(p("settle_move_m", 0.02))
         self.settle_still = float(p("settle_still_s", 0.5))
-        self.image_size = int(p("image_size", 0))              # YOLO input size; 0 = the model's training size
-        self.max_register = int(p("max_register", 1))          # 0 = all at once every time
-        self.backend = p("backend", "isaac")                   # only "isaac" (Isaac helper)
+        self.image_size = int(p("image_size", 0))
+        self.max_register = int(p("max_register", 1))
+        self.backend = p("backend", "isaac")
         self.isaac_service = p("isaac_service", "/karis/fp/estimate_pose")
         self.isaac_timeout = float(p("isaac_timeout_s", 25.0))
         self.info_msg = None
@@ -139,13 +111,13 @@ class PoseEstimatorNode(Node):
 
         self.cam_K = None
         self.info_frame = ""
-        self.colors, self.depths = {}, {}     # stamp_ns -> msg (a few newest)
-        self.pending = None                   # newest (colour, depth) pair not processed yet
+        self.colors, self.depths = {}, {}     # stamp_ns -> msg
+        self.pending = None                   # newest unprocessed (colour, depth) pair
         self.tracker = None
         self.reset_req = self.detect_req = self.rereg_req = False
         self.n, self.t0 = 0, time.perf_counter()
-        self.seen = {}                        # object_id -> time last confirmed by the detector
-        self.last_cam = None                  # last ObjectPoseArray in the camera frame
+        self.seen = {}                        # object_id -> time last detected
+        self.last_cam = None
         self.stats = {"frames": 0, "dropped": 0, "t": time.perf_counter(), "ms": []}
         self.tf_warned = 0.0
 
@@ -244,7 +216,7 @@ class PoseEstimatorNode(Node):
         if abs(best - t) <= self.max_dt * 1e9:
             pair = (msg, other[best]) if color_first else (other[best], msg)
             if self.pending is not None:
-                self.stats["dropped"] += 1          # processing is slower than the camera
+                self.stats["dropped"] += 1
             self.pending = pair
             mine.pop(t, None)
             other.pop(best, None)
@@ -276,12 +248,12 @@ class PoseEstimatorNode(Node):
             self.tracker.request_reregister()
             self.rereg_req = False
             self.get_logger().info("Registering every tracked part again")
-        if self.isaac is not None:              # the helper gets the compressed frame
+        if self.isaac is not None:
             self.isaac.set_frame(*self._compressed(cmsg, dmsg, bgr, depth))
         t_rel = time.perf_counter() - self.t0
         try:
             tm = self.tracker.step(bgr, depth, self.n, t_rel, force_detect=self.detect_req)
-        except RuntimeError as e:                # e.g. the Isaac helper did not answer
+        except RuntimeError as e:
             self.get_logger().error(f"frame skipped: {e}", throttle_duration_sec=5.0)
             return False
         self.detect_req = False
@@ -311,16 +283,16 @@ class PoseEstimatorNode(Node):
         return True
 
     def _compressed(self, cmsg, dmsg, bgr, depth_m):
-        """Colour + depth (16-bit PNG in mm, as the helper expects) + camera_info."""
+        """Colour, depth (16-bit PNG in mm) and camera_info for the Isaac helper."""
         info = self.info_msg
         c = cmsg if isinstance(cmsg, CompressedImage) else \
             rc.bgr_to_compressed(bgr, cmsg.header.stamp, cmsg.header.frame_id, 95)
         if isinstance(dmsg, CompressedImage) and abs(self.depth_scale - 0.001) < 1e-9:
-            d = dmsg                                 # already mm: forward as it came
+            d = dmsg
         else:
             mm = np.clip(depth_m * 1000.0 + 0.5, 0, 65535).astype(np.uint16)
             d = rc.depth_to_compressed(mm, dmsg.header.stamp, dmsg.header.frame_id)
-        if d.header.stamp != c.header.stamp:     # one stamp per frame for the helper
+        if d.header.stamp != c.header.stamp:
             d = CompressedImage(header=c.header, format=d.format, data=d.data)
         return c, d, info
 
@@ -347,7 +319,7 @@ class PoseEstimatorNode(Node):
             o.age_s = float(now - self.seen.get(trk["id"], now))
             arr.objects.append(o)
         counters = {}
-        for s in self.tracker.slots:          # classes without a mesh: position only
+        for s in self.tracker.slots:
             if s["centre"] is None:
                 continue
             counters[s["cls_name"]] = counters.get(s["cls_name"], 0) + 1
@@ -398,7 +370,7 @@ class PoseEstimatorNode(Node):
             txt = Marker()
             txt.header, txt.ns, txt.id = arr.header, "karis_labels", i
             txt.type, txt.action = Marker.TEXT_VIEW_FACING, Marker.ADD
-            txt.pose = rc.matrix_to_pose(rc.pose_to_matrix(o.box_pose))   # a copy
+            txt.pose = rc.matrix_to_pose(rc.pose_to_matrix(o.box_pose))
             txt.pose.position.y -= 0.03              # camera frame: -y is up
             txt.scale.z = 0.012
             txt.color.r = txt.color.g = txt.color.b = txt.color.a = 1.0
@@ -407,12 +379,11 @@ class PoseEstimatorNode(Node):
         self.pub_markers.publish(ma)
 
     def _lookup(self, target, source):
-        """4x4 target <- source from TF (latest available; the robot and laptop clocks
-        may differ, so the image stamp is not used)."""
+        """Latest 4x4 target <- source from TF (not at the image stamp: clocks may differ)."""
         try:
             t = self.tf_buffer.lookup_transform(target, source, Time())
             return rc.transform_to_matrix(t.transform), None
-        except Exception as e:                     # tf2 lookup / connectivity / extrapolation
+        except Exception as e:
             return None, str(e)
 
     def _transform_array(self, arr, target):
@@ -452,7 +423,7 @@ class PoseEstimatorNode(Node):
         if self.show:
             try:
                 if not getattr(self, "_window_open", False):
-                    cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)      # resizable with the mouse too
+                    cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
                 show = vis
                 if abs(self.show_scale - 1.0) > 1e-3:
                     show = cv2.resize(vis, None, fx=self.show_scale, fy=self.show_scale,
@@ -475,9 +446,7 @@ class PoseEstimatorNode(Node):
             raise KeyboardInterrupt
 
     def pump_window(self):
-        """Keeps the OpenCV window responsive between processed frames (it only redraws,
-        moves and takes keys while cv2.waitKey runs; with slow frames, e.g. the photo test at
-        2 frames/s, Windows/WSLg would otherwise show it as an empty, frozen window)."""
+        """Keep the OpenCV window responsive between processed frames."""
         if self.show and getattr(self, "_window_open", False):
             import cv2
             try:
@@ -518,7 +487,7 @@ class PoseEstimatorNode(Node):
 
     def _srv_get_objects(self, req, res):
         if req.fresh:
-            self.process_pending()               # newest camera frame, if one is waiting
+            self.process_pending()
         arr = self.last_cam
         if arr is None:
             res.success, res.message = False, "no camera frame processed yet"
@@ -531,7 +500,7 @@ class PoseEstimatorNode(Node):
                 return res
         out = ObjectPoseArray()
         out.header, out.pipeline_mode, out.processing_ms = arr.header, arr.pipeline_mode, arr.processing_ms
-        want_id = rc.slug(req.object_id) if req.object_id else ""   # "Rund mutter_1" works too
+        want_id = rc.slug(req.object_id) if req.object_id else ""
         out.objects = [o for o in arr.objects
                        if (not req.class_name or o.class_name == req.class_name)
                        and (not want_id or o.object_id == want_id)]
@@ -561,12 +530,11 @@ def main(args=None):
     ex.add_node(node)
     try:
         while rclpy.ok():
-            # take every waiting message (only the newest colour/depth pair is kept) ...
+            # take all waiting messages, then process the newest pair
             ex.spin_once(timeout_sec=0.0 if node.pending is not None else 0.05)
             for _ in range(30):
                 ex.spin_once(timeout_sec=0.0)
-            # ... then process it. Single thread: no locking, and the GPU work
-            # (detector, FoundationPose) stays on the thread that created it.
+            # (single thread: GPU work stays on the thread that created it)
             node.process_pending()
             node.pump_window()
     except KeyboardInterrupt:

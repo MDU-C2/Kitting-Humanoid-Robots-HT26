@@ -1,25 +1,11 @@
-"""
-KARIS camera player: plays a recording or the test photos as if it were the G1 head
-camera, on the same ROS 2 topics as robot/g1_camera_ros2.py. Test the whole ROS 2 chain
-(perception -> motion) without the robot.
+"""Plays a RealSense .bag, a frame folder or the test photos on the G1 camera topics.
 
-    ros2 run karis_perception camera_player --ros-args -p source:=$KARIS_DIR/videos/20261006_101500.bag
-    ros2 launch karis_bringup perception.launch.py player:=$KARIS_DIR/data      (the test photos)
+    ros2 launch karis_bringup perception.launch.py player:=$KARIS_DIR/videos/<name>.bag
 
-source can be
-    a RealSense .bag (from g1_capture.py; needs pyrealsense2; a bag that was not closed
-      properly is repaired first, into <name>.reindexed.bag), or
-    a folder with rgb/, depth/ (uint16 mm, aligned) and cam_K.txt plus timestamps.csv or
-      more than 20 frames (g1_capture.py RECORD_FORMAT="png", live_foundationpose.py SAVE_RAW):
-      played as a video, or
-    the image-test folder data/ (rgb/, depth/, cam_K/<name>.txt or cam_K.txt): PHOTO MODE.
-      Each photo is sent again and again (`still_rate` Hz) for `still_s` seconds, like a
-      camera looking at a still scene, and the perception is reset (/karis/reset) at every
-      new photo so the parts of the previous photo are not carried over. Make still_s long
-      enough for the registrations.
-Parameters: rate (Hz, 0 = speed of the recording), loop (true), still_s (20.0),
-still_rate (2.0), reset_between_photos (true), topic_prefix (/g1/head_camera),
-frame_id (head_camera_color_optical_frame).
+Sources: a .bag (repaired into <name>.reindexed.bag if needed); a folder with rgb/, depth/
+(uint16 mm, aligned), cam_K.txt and timestamps.csv, played as video; or the photo folder
+data/ (cam_K/<name>.txt per photo), where each photo is repeated for still_s seconds and
+/karis/reset is called between photos.
 """
 import csv
 import time
@@ -32,7 +18,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile
 try:
     from rclpy.qos import ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
-except ImportError:                     # older rclpy names
+except ImportError:
     from rclpy.qos import (QoSReliabilityPolicy as ReliabilityPolicy,
                            QoSHistoryPolicy as HistoryPolicy, QoSDurabilityPolicy as DurabilityPolicy)
 from sensor_msgs.msg import CameraInfo, CompressedImage
@@ -88,8 +74,7 @@ def bag_frames(path):
 
 
 def folder_frames(folder):
-    """(iterator of (t_s, bgr, depth_u16, K), is_photos) from rgb/ + depth/ +
-    cam_K.txt or cam_K/<stem>.txt (per photo, as in the image test)."""
+    """(iterator of (t_s, bgr, depth_u16, K), is_photos) from rgb/, depth/ and cam_K."""
     files = sorted(p for p in (folder / "rgb").iterdir() if p.suffix.lower() in IMAGE_EXTS)
     if not files:
         raise FileNotFoundError(f"no images in {folder / 'rgb'}")
@@ -184,7 +169,7 @@ class CameraPlayer(Node):
                 if not rclpy.ok():
                     return
                 info = self._info(K, bgr.shape)
-                if photos:                                    # photo mode: a still scene
+                if photos:
                     if self.reset_photos and self.reset_cli.service_is_ready():
                         self.reset_cli.call_async(Trigger.Request())
                     self.get_logger().info(f"Photo {n + 1}: showing it for {self.still_s:.0f} s")

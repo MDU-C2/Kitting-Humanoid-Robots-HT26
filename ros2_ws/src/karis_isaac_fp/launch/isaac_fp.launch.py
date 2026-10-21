@@ -1,16 +1,8 @@
-"""Isaac ROS FoundationPose (TensorRT) for KARIS. Runs in the Isaac helper container:
+"""Isaac ROS FoundationPose nodes (register + tracking per part class) and fp_bridge.
 
-    ros2 launch karis_isaac_fp isaac_fp.launch.py
-    ros2 launch karis_isaac_fp isaac_fp.launch.py classes:="Rund mutter,Ratblock Chamfer"
+    ros2 launch karis_isaac_fp isaac_fp.launch.py [classes:="Rund mutter,Ratblock Chamfer"]
 
-Starts, for every part class in meshes.yaml (made by make_isaac_meshes in the perception
-container), an Isaac ROS FoundationPoseNode (register) and FoundationPoseTrackingNode
-(track) under /karis_fp/<class>/, all in one component container, plus the KARIS bridge
-(service /karis/fp/estimate_pose).
-
-GPU memory: every class has its own register + tracking node with their own buffers and
-TensorRT engines, roughly 1.5 GB per class. On a 6 GB GPU, limit `classes` to the parts
-you need (or run this helper on another PC).
+Uses about 1.5 GB of GPU memory per class.
 """
 import os
 

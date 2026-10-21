@@ -1,17 +1,9 @@
-"""
-KARIS pose tracker: detection + FoundationPose registration + tracking of every part, one
-frame at a time (used by the pose estimator node).
+"""Per-frame pose tracking of all parts: detection, FoundationPose registration and tracking.
 
-  - First frame: the detector finds all parts; each part with a mesh is registered
-    (FoundationPose register(), slow).
-  - Next frames: each part is tracked from its previous pose (track_one(), fast).
-  - Every REDETECT_EVERY frames the detector runs again: new parts are registered, a part
-    whose mesh silhouette no longer matches its detected mask (IoU < REREGISTER_IOU) is
-    registered again, and a part not seen for LOST_AFTER detections is dropped.
-    Classes without a mesh (tray slots) get their 3D centre point.
-
-The estimators are IsaacEstimator objects (isaac_backend): FoundationPose runs in the Isaac
-helper. Settings below are defaults; the node sets them from its ROS parameters.
+Parts are tracked from their previous pose every frame. Every REDETECT_EVERY frames the
+detector runs: new parts are registered, parts whose silhouette IoU drops below
+REREGISTER_IOU are registered again, and parts missed LOST_AFTER times are dropped.
+Classes without a mesh (tray slots) only get a centre point.
 """
 from __future__ import annotations
 
@@ -23,17 +15,15 @@ import numpy as np
 
 from karis_perception import vision
 
-# ------------------------------------------------------------ settings (set by the node)
+# ------------------------------------------------------------ settings
 TRACK_ITERATIONS = 1      # refinement iterations per tracked frame
 REDETECT_EVERY = 5        # run the detector every N processed frames (1 = every frame)
 REREGISTER_IOU = 0.2      # re-register a track if its silhouette IoU drops below this
-                          # (the hollow part gives ~0.4 even when correct, keep this low)
+                          # (hollow parts give ~0.4 even when correct)
 LOST_AFTER = 3            # drop a track not seen in this many detections in a row
 MATCH_PX = 40             # max distance [px] between a track and a detection to match
-DRIFT_PX = 120            # a detection this close to an unmatched track of its class is that
-                          # part after its track drifted: re-register it under the same id
-MAX_REGISTER_PER_DETECT = None   # None = register everything at once; 1 = at most one per
-                                 # detection frame (the first detection registers all)
+DRIFT_PX = 120            # unmatched detection this close to an unmatched track: same part, re-register
+MAX_REGISTER_PER_DETECT = None   # registrations per detection frame after the first (None = all)
 
 
 def project(K, p):
@@ -96,8 +86,8 @@ class PoseTracker:
     """Detection + registration + tracking of every part, one frame at a time."""
 
     def __init__(self, model, ests, fpu, glctx, K, max_register=None, check=None):
-        """check(entry, pose, K, depth, mask, fpu, glctx) -> (iou, depth_err, mask): the drift
-        check (default: isaac_backend.silhouette_check, a CPU projection of the mesh)."""
+        """check(entry, pose, K, depth, mask, fpu, glctx) -> (iou, depth_err, mask); default
+        isaac_backend.silhouette_check."""
         self.model, self.ests, self.fpu, self.glctx, self.K = model, ests, fpu, glctx, K
         if check is None:
             from karis_perception.isaac_backend import silhouette_check as check
@@ -112,7 +102,7 @@ class PoseTracker:
         """Forget all parts; the next frame detects and registers from scratch."""
         self.tracks, self.slots, self.counters = {}, [], {}
         self.k = 0
-        self.pending = False      # registrations left over for the next frame
+        self.pending = False      # registrations left for the next frame
 
     def _register(self, trk, det, depth, rgb):
         est = self.ests[trk["cls_name"]]["est"]
@@ -124,14 +114,14 @@ class PoseTracker:
         ms = (time.perf_counter() - t0) * 1000
         self.reg_times.append(ms)
         trk["pose"] = np.asarray(pose, np.float64).reshape(4, 4)
-        trk["state"] = est.pose_last.clone()      # FoundationPose's tracking state
+        trk["state"] = est.pose_last.clone()
         trk["mode"] = "register"
         trk["conf"] = det.get("conf")
         trk["iou"] = None
         return ms
 
     def _closest(self, det, track_ids, max_px):
-        """The track (of the same class, among track_ids) nearest the detection, within max_px."""
+        """Nearest track of the same class among track_ids, within max_px."""
         c = np.array(det["center_px"])
         best, best_d = None, max_px
         for tid in track_ids:
@@ -178,7 +168,7 @@ class PoseTracker:
         # 2. detection frame: find new parts, check / repair existing tracks
         detect_now = force_detect or self.pending or self.k % REDETECT_EVERY == 0
         if detect_now:
-            first = not self.tracks               # start (or after reset): register all at once
+            first = not self.tracks
             vision.cuda_sync()
             t0 = time.perf_counter()
             dets = vision.detect(self.model, bgr, depth=depth)
@@ -204,11 +194,11 @@ class PoseTracker:
                     unmatched.discard(best)
                     matched.append((best, det))
 
-            # what needs a registration: drifted tracks, lost tracks, then new parts
+            # registrations: drifted and lost tracks first, then new parts
             todo = []
             for det in new_dets:
                 drifted = self._closest(det, unmatched, DRIFT_PX)
-                if drifted is not None:                    # same part, its track drifted away
+                if drifted is not None:
                     unmatched.discard(drifted)
                     self.tracks[drifted]["missed"] = 0
                     todo.append((drifted, det))
@@ -221,9 +211,9 @@ class PoseTracker:
                 iou, _, _ = self.check(ests[trk["cls_name"]], trk["pose"], K, depth,
                                              det["mask"], self.fpu, self.glctx)
                 trk["iou"] = iou
-                if iou is not None and iou < REREGISTER_IOU:     # lost: start over
+                if iou is not None and iou < REREGISTER_IOU:
                     todo.insert(0, (tid, det))
-            todo.sort(key=lambda x: x[0] is None)          # existing ids before new parts
+            todo.sort(key=lambda x: x[0] is None)
 
             limit = self.max_register if (self.max_register and not first) else len(todo)
             for tid, det in todo[:limit]:
@@ -234,9 +224,9 @@ class PoseTracker:
                     tm["register_ms"] += self._register(self.tracks[tid], det, depth, rgb)
                     self.n_reregistered += 1
                 tm["n_register"] += 1
-            self.pending = len(todo) > limit               # finish them on the next frame
+            self.pending = len(todo) > limit
 
-            for tid in list(unmatched):                    # not seen by the detector
+            for tid in list(unmatched):
                 self.tracks[tid]["missed"] += 1
                 if self.tracks[tid]["missed"] >= LOST_AFTER:
                     del self.tracks[tid]
