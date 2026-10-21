@@ -26,15 +26,23 @@ class StateCache:
         self.last_at = None
         self.positions = None
         self.velocities = None
+        self.efforts = None  # Unitree LowState motor_state.tau_est (estimate only)
         self.mode_machine = None
 
     def update(self, msg):
         q = [float(msg.motor_state[i].q) for i in range(29)]
         dq = [float(msg.motor_state[i].dq) for i in range(29)]
+        # No extra subscriber: use feedback already received by this read-only observer.
+        try:
+            efforts = [float(msg.motor_state[i].tau_est) for i in range(29)]
+        except (AttributeError, TypeError, ValueError):
+            efforts = None
+        if efforts is not None and not all(math.isfinite(v) for v in efforts):
+            efforts = None
         if not all(math.isfinite(v) for v in q + dq):
             return  # never forward an invalid measurement
         with self.lock:
-            self.positions, self.velocities = q, dq
+            self.positions, self.velocities, self.efforts = q, dq, efforts
             self.mode_machine = int(msg.mode_machine)
             self.last_at = time.monotonic()
 
@@ -46,6 +54,7 @@ class StateCache:
                     'fresh': age is not None and 0 <= age <= 0.25,
                     'age_s': age, 'joint_names': JOINT_NAMES_29,
                     'positions': self.positions, 'velocities': self.velocities,
+                    'efforts': self.efforts,  # tau_est (not calibrated output torque)
                     'mode_machine': self.mode_machine}
 
 

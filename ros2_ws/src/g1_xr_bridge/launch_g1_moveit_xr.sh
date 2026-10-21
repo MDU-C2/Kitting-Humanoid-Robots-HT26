@@ -6,6 +6,12 @@ WS="${G1_WORKSPACE:-/workspace}"
 BR="$WS/src/g1_xr_bridge"
 MODE="${1:-}"
 IFACE="${G1_INTERFACE:-enx50a03000b0dc}"
+# G1_INSPIRE_FTP_GRAVITY_V1: explicit opt-in; old XR gravity remains default.
+GRAVITY_MODEL="${G1_GRAVITY_MODEL:-xr}"
+case "$GRAVITY_MODEL" in
+  xr|inspire_ftp) ;;
+  *) echo "Invalid G1_GRAVITY_MODEL=$GRAVITY_MODEL (use xr or inspire_ftp)" >&2; exit 2 ;;
+esac
 # 0 disables only the extra per-goal movement cap. URDF position bounds,
 # trajectory speed limits, and physical feedback watchdogs stay enabled.
 MAX_DISPLACEMENT="${G1_MAX_DISPLACEMENT_RAD:-0.0}"
@@ -139,15 +145,54 @@ cleanup_stale_observer_socket || exit 1
 bash "$BR/verify_and_apply_xr.sh" --apply || { echo 'XR automatic preparation failed. No motor control started.' >&2; exit 1; }
 # verify in XR environment (does not open DDS)
 (cd "$WS/src/xr_teleoperate/teleop" && env -u PYTHONPATH LD_LIBRARY_PATH="/opt/mamba/envs/xr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" G1_XR_SOURCE_ROOT="$WS/src/xr_teleoperate" /opt/mamba/envs/xr/bin/python "$BR/xr_headless_moveit.py" --verify)
+# Validate the opt-in dynamics model BEFORE initializing DDS or motor commands.
+if [[ "$GRAVITY_MODEL" == inspire_ftp ]]; then
+  echo 'Preflight: validating Inspire FTP Pinocchio model offline...'
+  (cd "$WS/src/xr_teleoperate/teleop" && env -u PYTHONPATH LD_LIBRARY_PATH="/opt/mamba/envs/xr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" G1_WORKSPACE="$WS" /opt/mamba/envs/xr/bin/python "$BR/xr_headless_moveit.py" --gravity-check)
+fi
+# G1_INSPIRE_FTP_INTEGRATION_V1: optional separate hand state/control owner.
+# Preserve the original XR VR hand controller and all XR source files unchanged.
+HAND_ENABLED="${G1_INSPIRE_FTP_ENABLE:-0}"
+HAND_MOTION="${G1_INSPIRE_FTP_MOTION:-0}"
+[[ "$HAND_ENABLED" == 0 || "$HAND_ENABLED" == 1 ]] || { echo 'G1_INSPIRE_FTP_ENABLE must be 0 or 1' >&2; exit 2; }
+[[ "$HAND_MOTION" == 0 || "$HAND_MOTION" == 1 ]] || { echo 'G1_INSPIRE_FTP_MOTION must be 0 or 1' >&2; exit 2; }
+if [[ "$HAND_MOTION" == 1 ]]; then
+  [[ "$HAND_ENABLED" == 1 && "${G1_INSPIRE_FTP_OPERATOR_ACK:-}" == 'G1_INSPIRE_FTP_SUPERVISED' ]] || {
+    echo 'Hand actuation requires G1_INSPIRE_FTP_ENABLE=1 and G1_INSPIRE_FTP_OPERATOR_ACK=G1_INSPIRE_FTP_SUPERVISED' >&2
+    exit 2
+  }
+fi
+if [[ "$HAND_ENABLED" == 1 ]]; then
+  # Fail before motor activation if the separate hand DDS dependency is missing.
+  env -u PYTHONPATH LD_LIBRARY_PATH="/opt/mamba/envs/xr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    /opt/mamba/envs/xr/bin/python -c 'from inspire_sdkpy import inspire_dds; import inspire_sdkpy.inspire_hand_defaut; from unitree_sdk2py.core.channel import ChannelSubscriber' || {
+      echo 'Inspire FTP SDK not installed in XR environment; no motors started.' >&2
+      exit 1
+    }
+  [[ ! -e /tmp/g1_xr_inspire_ftp.sock ]] || { echo 'Inspire FTP hand socket already exists; refuse duplicate owner.' >&2; exit 1; }
+fi
+# G1_INSPIRE_FTP_MOVEIT_TRAJECTORY_V1: separate, explicitly supervised MoveIt hand actions.
+HAND_TRAJ="${G1_INSPIRE_FTP_MOVEIT_TRAJECTORY:-0}"
+[[ "$HAND_TRAJ" == 0 || "$HAND_TRAJ" == 1 ]] || { echo 'G1_INSPIRE_FTP_MOVEIT_TRAJECTORY must be 0 or 1' >&2; exit 2; }
+if [[ "$HAND_TRAJ" == 1 ]]; then
+  [[ "$HAND_ENABLED" == 1 && "$HAND_MOTION" == 1 && "${G1_INSPIRE_FTP_TRAJECTORY_OPERATOR_ACK:-}" == G1_INSPIRE_FTP_TRAJECTORY_SUPERVISED ]] || {
+    echo 'FTP hand MoveIt trajectory requires explicit motor motion and trajectory operator ACK' >&2; exit 2;
+  }
+fi
+export G1_INSPIRE_FTP_MOVEIT_TRAJECTORY="$HAND_TRAJ"
 LOGDIR="$WS/g1_headless_logs/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$LOGDIR"
 echo "Logs: $LOGDIR"
+echo "XR gravity model: $GRAVITY_MODEL"
 echo "MoveIt YAML maximum arm speed: $XR_SPEED rad/s; XR speed matches YAML."
 # Run supervised controller first and only start ROS components after XR indicates it has fresh feedback.
-( cd "$WS/src/xr_teleoperate/teleop"; unset PYTHONPATH; export LD_LIBRARY_PATH="/opt/mamba/envs/xr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"; exec /opt/mamba/envs/xr/bin/python "$BR/xr_headless_moveit.py" --hardware --interface "$IFACE" --operator-ack G1_REGULAR_MODE_SUPERVISED --arm-speed-rad-s "$XR_SPEED" ) 9>&- > "$LOGDIR/xr.log" 2>&1 & XR_PID=$!
+( cd "$WS/src/xr_teleoperate/teleop"; unset PYTHONPATH; export LD_LIBRARY_PATH="/opt/mamba/envs/xr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"; exec /opt/mamba/envs/xr/bin/python "$BR/xr_headless_moveit.py" --hardware --interface "$IFACE" --operator-ack G1_REGULAR_MODE_SUPERVISED --arm-speed-rad-s "$XR_SPEED" --gravity-model "$GRAVITY_MODEL" ) 9>&- > "$LOGDIR/xr.log" 2>&1 & XR_PID=$!
 ACTION_PID=""
 OBSERVER_PID=""
 RELAY_PID=""
+HAND_PID=""
+HAND_RELAY_PID=""
+HAND_ACTION_PID=""
 MOVEIT_PID=""
 MOVEIT_ISOLATED=0
 
@@ -192,6 +237,14 @@ cleanup() {
   set +e
   echo 'Orderly shutdown: stopping trajectory sources, requesting XR release, then closing observers.' >&2
   # No new MoveIt goals or action commands. The XR watchdog remains active.
+  [[ -n "$HAND_RELAY_PID" ]] && kill -TERM "$HAND_RELAY_PID" 2>/dev/null
+  [[ -n "$HAND_ACTION_PID" ]] && kill -TERM "$HAND_ACTION_PID" 2>/dev/null
+  if ! stop_ros_process "$HAND_ACTION_PID" 'ROS hand trajectory action'; then failed=1; fi
+  [[ -n "$HAND_PID" ]] && kill -TERM "$HAND_PID" 2>/dev/null
+  if [[ -n "$HAND_PID" ]] && ! wait_process "$HAND_PID" 5 "hand DDS shutdown"; then
+    echo "DANGER: Inspire FTP hand publisher may still be active; verify state before restart." >&2
+    failed=1
+  fi
   [[ -n "$ACTION_PID" ]] && kill -TERM "$ACTION_PID" 2>/dev/null
   if [[ -n "$MOVEIT_PID" ]]; then
     if (( MOVEIT_ISOLATED == 1 )); then
@@ -221,6 +274,7 @@ cleanup() {
   [[ -n "$OBSERVER_PID" ]] && kill -TERM "$OBSERVER_PID" 2>/dev/null
   if ! stop_ros_process "$ACTION_PID" 'ROS action server'; then failed=1; fi
   if ! stop_ros_process "$RELAY_PID" 'ROS joint-state relay'; then failed=1; fi
+  if ! stop_ros_process "$HAND_RELAY_PID" 'ROS hand joint-state relay'; then failed=1; fi
   if ! stop_ros_process "$OBSERVER_PID" 'read-only observer'; then failed=1; fi
   if [[ -n "$MOVEIT_PID" ]]; then
     started=$SECONDS
@@ -274,6 +328,19 @@ echo "MoveIt extra per-joint displacement cap: ${MAX_DISPLACEMENT} rad (0=off; j
 /usr/bin/python3 "$BR/ros2_headless_moveit_action.py" --ros-args -p "max_displacement_rad:=${MAX_DISPLACEMENT}" 9>&- > "$LOGDIR/action.log" 2>&1 & ACTION_PID=$!
 ( unset PYTHONPATH; export LD_LIBRARY_PATH="/opt/mamba/envs/xr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"; exec /opt/mamba/envs/xr/bin/python "$BR/g1_readonly_observer.py" --interface "$IFACE" ) 9>&- > "$LOGDIR/observer.log" 2>&1 & OBSERVER_PID=$!
 /usr/bin/python3 "$BR/g1_joint_state_relay.py" --mode observe 9>&- > "$LOGDIR/relay.log" 2>&1 & RELAY_PID=$!
+if [[ "$HAND_ENABLED" == 1 ]]; then
+  hand_args=(--interface "$IFACE")
+  if [[ "$HAND_MOTION" == 1 ]]; then
+    hand_args+=(--enable-motion --operator-ack G1_INSPIRE_FTP_SUPERVISED)
+  fi
+  ( unset PYTHONPATH; export LD_LIBRARY_PATH="/opt/mamba/envs/xr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}";
+    exec /opt/mamba/envs/xr/bin/python "$BR/g1_inspire_ftp_bridge.py" "${hand_args[@]}" ) 9>&- > "$LOGDIR/hands.log" 2>&1 & HAND_PID=$!
+  /usr/bin/python3 "$BR/g1_inspire_ftp_joint_state_relay.py" 9>&- > "$LOGDIR/hand_relay.log" 2>&1 & HAND_RELAY_PID=$!
+  if [[ "$HAND_TRAJ" == 1 ]]; then
+    /usr/bin/python3 "$BR/ros2_g1_inspire_ftp_hand_action.py" --operator-ack G1_INSPIRE_FTP_TRAJECTORY_SUPERVISED 9>&- > "$LOGDIR/hand_action.log" 2>&1 & HAND_ACTION_PID=$!
+  fi
+  echo "Inspire FTP: enabled (motion=$HAND_MOTION); logs: hands.log and hand_relay.log"
+fi
 # setsid isolates MoveIt/RViz from XR so termination cannot signal the motor publisher.
 setsid ros2 launch g1_moveit_config xr_pipeline_moveit.launch.py enable_execution:=true 9>&- > "$LOGDIR/moveit_rviz.log" 2>&1 & MOVEIT_PID=$!
 for ((i=0; i<20; i++)); do
@@ -286,7 +353,7 @@ if (( MOVEIT_ISOLATED != 1 )); then
   echo 'MoveIt launcher failed to enter its own process group; refusing to continue.' >&2
   exit 1
 fi
-echo 'Started XR + action + observer + relay + MoveIt/RViz. Check RViz and logs; no trajectory is sent automatically.'
+echo 'Started XR + action + observer + relay + optional Inspire FTP + MoveIt/RViz. Check RViz and logs; no trajectory is sent automatically.'
 echo 'This terminal is the supervisor. Do NOT close it or use Ctrl+C as an emergency stop.'
 echo 'Physical stopping must follow the robot operator’s verified procedure.'
 while true; do
@@ -294,7 +361,8 @@ while true; do
   if ! kill -0 "$XR_PID" 2>/dev/null; then
     echo "XR motor controller exited (PID $XR_PID). Consult $LOGDIR/xr.log." >&2; exit 1
   fi
-  for name in ACTION_PID OBSERVER_PID RELAY_PID MOVEIT_PID; do
+  for name in ACTION_PID OBSERVER_PID RELAY_PID HAND_PID HAND_RELAY_PID HAND_ACTION_PID MOVEIT_PID; do
+    [[ -n "${!name}" ]] || continue
     pid="${!name}"
     if ! pid_active "$pid"; then
       echo "$name exited (PID $pid). Consult $LOGDIR logs." >&2
