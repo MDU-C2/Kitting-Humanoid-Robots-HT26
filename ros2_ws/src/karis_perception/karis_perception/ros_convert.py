@@ -1,6 +1,4 @@
-"""Conversions between ROS 2 messages and numpy, without cv_bridge (cv_bridge is built
-against the system Python/OpenCV and clashes with the FoundationPose conda env).
-Works on Humble (and Foxy)."""
+"""Conversions between ROS 2 image/pose messages and numpy (without cv_bridge)."""
 import array
 import re
 import struct
@@ -16,8 +14,7 @@ DEPTH_HEADER = struct.pack("<iff", 0, 0.0, 0.0)   # compressed_depth_image_trans
 
 # ---------------------------------------------------------------- images
 def image_msg_type(topic):
-    """Topic name -> message type: '.../compressed' and '.../compressedDepth' are
-    CompressedImage (image_transport naming), anything else sensor_msgs/Image."""
+    """CompressedImage for '.../compressed' and '.../compressedDepth' topics, else Image."""
     return CompressedImage if topic.rstrip("/").split("/")[-1] in ("compressed", "compressedDepth") \
         else Image
 
@@ -44,8 +41,7 @@ def color_to_bgr(msg):
 
 
 def depth_to_metres(msg, scale_16u=0.001):
-    """Depth image -> float32 metres. 16UC1 (mm, RealSense) or 32FC1 (m),
-    raw or compressedDepth (PNG; the 12-byte image_transport header is skipped)."""
+    """Depth image (16UC1 in mm or 32FC1 in m, raw or compressedDepth PNG) -> float32 metres."""
     if isinstance(msg, CompressedImage):
         data = bytes(msg.data)
         i = data.find(PNG_MAGIC)
@@ -87,7 +83,7 @@ def bgr_to_compressed(bgr, stamp, frame_id, quality=85):
     m = CompressedImage()
     m.header.stamp, m.header.frame_id = stamp, frame_id
     m.format = "bgr8; jpeg compressed bgr8"
-    m.data = array.array("B", buf.tobytes())   # array.array: no slow per-byte check
+    m.data = array.array("B", buf.tobytes())
     return m
 
 

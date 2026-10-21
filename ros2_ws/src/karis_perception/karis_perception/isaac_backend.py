@@ -1,16 +1,7 @@
-"""
-backend:=isaac for the KARIS pose estimator: FoundationPose runs in the Isaac ROS helper
-container (TensorRT), reached through the service /karis/fp/estimate_pose
-(karis_isaac_fp). Detection, matching, re-detection and drift handling stay in the
-KARIS tracker (tracker.PoseTracker): IsaacEstimator has the same register() / track_one() /
-pose_last interface as NVlabs' FoundationPose class.
+"""Client side of the Isaac ROS FoundationPose helper (/karis/fp/estimate_pose).
 
-The perception image has no FoundationPose of its own (no nvdiffrast, no warp). The two
-things the tracker used it for are done here on the CPU:
-  - the drift check (silhouette_check): the part's mesh is projected at its pose with
-    OpenCV and compared with the detector's mask (IoU); a part whose IoU drops below
-    REREGISTER_IOU is registered again;
-  - drawing the 3D box and axes (Draw).
+IsaacEstimator has the register() / track_one() / pose_last interface the tracker uses.
+The drift check (mesh silhouette vs. detector mask) and the 3D box drawing run on the CPU.
 """
 from __future__ import annotations
 
@@ -33,12 +24,11 @@ _ids = itertools.count(1)
 
 
 class UnknownClass(RuntimeError):
-    """The Isaac helper has no mesh / nodes for this class (not in its `classes`)."""
+    """The Isaac helper does not serve this class."""
 
 
 class IsaacState:
-    """What PoseTracker keeps per part as `state`: the id of the part's tracking state in
-    the helper, and the last pose (returned if a tracking step fails)."""
+    """Per-part tracking state: the helper's track id and the last pose."""
 
     def __init__(self, track_id, pose):
         self.track_id, self.pose = track_id, np.array(pose)
@@ -48,12 +38,11 @@ class IsaacState:
 
 
 class IsaacClient:
-    """Calls /karis/fp/estimate_pose from its own node and executor thread, so the
-    perception node's main loop can simply block on the answer."""
+    """Calls /karis/fp/estimate_pose from its own node and executor thread, so the caller can block."""
 
     def __init__(self, context_node, service="/karis/fp/estimate_pose", timeout_s=12.0):
         self.log = context_node.get_logger()
-        # use_global_arguments=False: a launch file's "-r __node:=..." must not rename this node
+        # ignore launch remaps such as __node:=
         self.node = Node("karis_fp_client", use_global_arguments=False)
         self.cli = self.node.create_client(EstimatePose, service)
         self.ex = SingleThreadedExecutor()
@@ -127,12 +116,12 @@ class IsaacClient:
 
 
 class IsaacEstimator:
-    """Drop-in for FoundationPose(...) of one class, backed by the Isaac helper."""
+    """FoundationPose estimator for one class, backed by the Isaac helper."""
 
     def __init__(self, client, class_name, verts, faces, ests=None):
         self.client, self.class_name = client, class_name
-        self.ests = ests                          # the tracker's dict: we leave it if Isaac lacks us
-        self.verts = np.asarray(verts, dtype=np.float64)   # CAD frame, metres (for the drift check)
+        self.ests = ests                          # the class is removed from it if the helper lacks it
+        self.verts = np.asarray(verts, dtype=np.float64)   # CAD frame [m]
         self.faces = np.asarray(faces, dtype=np.int64)
         self.pose_last = None
 
@@ -146,8 +135,7 @@ class IsaacEstimator:
         try:
             res = self.client.call(tid, self.class_name, "register", mask)
         except UnknownClass as e:
-            # Not served by the helper: from now on this class only gets its 3D centre
-            # (like tray slots) instead of failing every frame.
+            # fall back to centre-only for this class
             if self.ests is not None and self.ests.pop(self.class_name, None) is not None:
                 self.client.log.warn(f"{e} -> '{self.class_name}' gets position only from now on. "
                                      "Start the helper with this class to get its full pose.")
@@ -162,17 +150,14 @@ class IsaacEstimator:
             res = self.client.call(st.track_id, self.class_name, "track")
         except RuntimeError as e:
             self.client.log.warn(str(e), throttle_duration_sec=5.0)
-            return st.pose                         # keep the last pose this frame
+            return st.pose
         pose = np.array(res.pose, dtype=np.float64).reshape(4, 4)
         self.pose_last = IsaacState(st.track_id, pose)
         return pose
 
 
 def build_isaac_estimators(classes, class_names, client, log):
-    """One IsaacEstimator per class in `classes` (vision.load_classes()) that the detector
-    knows (class_names).
-    Returns (ests, drawer, None): the drawer replaces FoundationPose's Utils, and there
-    is no GPU render context (None)."""
+    """One IsaacEstimator per mesh class known to the detector. Returns (ests, Draw(), None)."""
     import trimesh
     ests = {}
     for cls_name, cfg in classes.items():
@@ -193,9 +178,7 @@ def build_isaac_estimators(classes, class_names, client, log):
 
 
 def simplify_for_silhouette(verts, faces, cell_m=0.001, max_faces=6000):
-    """Fewer triangles for the drift check: vertices are merged on a grid (cell_m), which
-    keeps the outline to about a cell. The grid grows until at most max_faces remain.
-    Fine CAD meshes (tens of thousands of triangles) then cost a few ms per check."""
+    """Merge vertices on a grid (growing from cell_m) until at most max_faces triangles remain."""
     verts = np.asarray(verts, dtype=np.float64)
     faces = np.asarray(faces, dtype=np.int64)
     cell = cell_m
@@ -219,9 +202,7 @@ def simplify_for_silhouette(verts, faces, cell_m=0.001, max_faces=6000):
 
 
 def silhouette_check(entry, pose, K, depth, mask, fpu=None, glctx=None):
-    """The tracker's drift check, without a GPU renderer: projects the
-    part's mesh at `pose` (CAD frame in the camera frame) and returns
-    (silhouette IoU with the detector's mask, None, rendered mask)."""
+    """IoU between the mesh projected at `pose` and the detector mask -> (iou, None, rendered mask)."""
     try:
         est = entry["est"]
         h, w = mask.shape[:2]
@@ -230,7 +211,7 @@ def silhouette_check(entry, pose, K, depth, mask, fpu=None, glctx=None):
         union = np.count_nonzero(rmask | m)
         iou = np.count_nonzero(rmask & m) / union if union else 0.0
         return float(iou), None, rmask
-    except Exception as e:                   # never let the self-check stop the tracking
+    except Exception as e:
         print(f"    silhouette check failed: {e}")
         return None, None, None
 
@@ -244,10 +225,10 @@ def render_silhouette(verts, faces, pose, K, shape):
     uv = np.zeros((len(P), 2))
     uv[ok, 0] = K[0, 0] * P[ok, 0] / z[ok] + K[0, 2]
     uv[ok, 1] = K[1, 1] * P[ok, 1] / z[ok] + K[1, 2]
-    tri = faces[ok[faces].all(axis=1)]                 # triangles fully in front of the camera
+    tri = faces[ok[faces].all(axis=1)]
     out = np.zeros((h, w), dtype=np.uint8)
     if len(tri):
-        pts = np.round(uv[tri] * 16).astype(np.int32)  # 4 bits of sub-pixel precision
+        pts = np.round(uv[tri] * 16).astype(np.int32)  # shift=4: sub-pixel precision
         cv2.fillPoly(out, list(pts), 1, lineType=cv2.LINE_8, shift=4)
     return out.astype(bool)
 
@@ -257,7 +238,7 @@ def _project(K, p):
 
 
 class Draw:
-    """3D box and axes on the image, the same calls as FoundationPose's Utils."""
+    """Draws a 3D box and axes (same signatures as FoundationPose's Utils)."""
 
     @staticmethod
     def draw_posed_3d_box(K, img, ob_in_cam, bbox, line_color=(0, 255, 0), linewidth=2, **kw):
@@ -269,7 +250,7 @@ class Draw:
         px = [_project(K, p) for p in P]
         for i in range(8):
             for j in range(i + 1, 8):
-                if bin(i ^ j).count("1") == 1:        # corners differing in one coordinate = an edge
+                if bin(i ^ j).count("1") == 1:        # edge
                     cv2.line(img, px[i], px[j], line_color, linewidth, cv2.LINE_AA)
         return img
 

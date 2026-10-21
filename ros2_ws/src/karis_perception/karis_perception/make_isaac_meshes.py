@@ -1,19 +1,9 @@
-"""
-Makes the meshes for Isaac ROS FoundationPose from the KARIS CAD meshes.
+"""Write textured, centred OBJ meshes for Isaac ROS FoundationPose from config/classes.yaml.
 
-Isaac ROS FoundationPose reads a textured .obj (with .mtl and a texture image) in metres.
-This takes every class in config/classes.yaml of this package (.stl / .obj / .ply, with its
-scale) and writes it CENTRED on its bounding box, the frame Isaac
-works in internally. The centre (in the CAD frame) goes into meshes.yaml, and the bridge
-turns Isaac's poses back into the CAD frame, so poses mean the same as with the PyTorch
-FoundationPose. Output:
+Each mesh is centred on its bounding box; the centre goes into meshes.yaml so fp_bridge can
+convert Isaac's poses back to the CAD frame. Output in <KARIS_DIR>/meshes_isaac/.
 
-    <KARIS_DIR>/meshes_isaac/<class_slug>/<class_slug>.obj  .mtl  texture.png
-    <KARIS_DIR>/meshes_isaac/meshes.yaml        class name -> obj path (read by the Isaac helper)
-
-Run in the perception container (it has trimesh), again after changing classes.yaml:
-    ros2 run karis_perception make_isaac_meshes
-    ros2 run karis_perception make_isaac_meshes --color 150 150 150   (texture grey level)
+    ros2 run karis_perception make_isaac_meshes [--color R G B]
 """
 import argparse
 import os
@@ -28,7 +18,7 @@ from karis_perception.ros_convert import slug
 
 def write_obj(mesh, out_dir, name, color):
     out_dir.mkdir(parents=True, exist_ok=True)
-    tex = np.full((8, 8, 3), color[::-1], np.uint8)          # BGR for cv2
+    tex = np.full((8, 8, 3), color[::-1], np.uint8)          # BGR
     cv2.imwrite(str(out_dir / "texture.png"), tex)
     (out_dir / f"{name}.mtl").write_text(
         "newmtl material_0\nKa 1.0 1.0 1.0\nKd 1.0 1.0 1.0\nKs 0.0 0.0 0.0\nd 1.0\nillum 2\n"
@@ -64,7 +54,7 @@ def main():
         mesh.apply_scale(cfg.get("scale", 1.0))
         s = slug(cls_name)
         lo, hi = mesh.vertices.min(0), mesh.vertices.max(0)
-        center = (lo + hi) / 2                                  # same centring as FoundationPose
+        center = (lo + hi) / 2
         centred = mesh.copy()
         centred.vertices = centred.vertices - center
         obj = write_obj(centred, out_root / s, s, a.color)

@@ -1,11 +1,7 @@
-"""
-RF-DETR helper for the KARIS detectors (detectors.RFDETRDetector): runs RF-DETR in its own
-Python (it needs newer PyTorch/transformers than the ROS Python) and answers detection
-requests over a local socket. Started automatically by detectors.py; by hand:
-    /opt/rfdetr-venv/bin/python rfdetr_server.py --model <models>/RF_DETR_m.pth
-    /opt/rfdetr-venv/bin/python rfdetr_server.py --model <models>/rf_detr.pth --size seg-medium
+"""RF-DETR detection server for detectors.RFDETRDetector, over a local socket.
 
-Standalone on purpose (no ROS, no karis_perception imports). Needs: pip install rfdetr
+Runs in its own Python environment (RF-DETR needs newer PyTorch than ROS 2 Humble):
+    /opt/rfdetr-venv/bin/python rfdetr_server.py --model <models>/RF_DETR_m.pth [--size seg-medium]
 """
 import argparse
 import json
@@ -16,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-SIZE_CLASSES = {          # --size / file-name hint -> rfdetr class name (segmentation first)
+SIZE_CLASSES = {          # --size -> rfdetr class name
     "seg-nano": "RFDETRSegNano", "seg-small": "RFDETRSegSmall", "seg-medium": "RFDETRSegMedium",
     "seg-large": "RFDETRSegLarge", "seg-xlarge": "RFDETRSegXLarge", "seg-2xlarge": "RFDETRSeg2XLarge",
     "seg-preview": "RFDETRSegPreview",
@@ -62,12 +58,12 @@ def load_model(path, size=None):
     import rfdetr
     path = Path(path)
     if size:
-        name = SIZE_CLASSES.get(size.lower(), size)          # e.g. seg-medium or RFDETRSegMedium
+        name = SIZE_CLASSES.get(size.lower(), size)
         cls = getattr(rfdetr, name, None)
         if cls is None:
             raise ValueError(f"This rfdetr version has no {name}. Sizes: {list(SIZE_CLASSES)}")
         return cls(pretrain_weights=str(path))
-    if hasattr(rfdetr, "from_checkpoint"):             # newer rfdetr: detects the size itself
+    if hasattr(rfdetr, "from_checkpoint"):
         try:
             try:
                 return rfdetr.from_checkpoint(str(path), trust_checkpoint=True)
@@ -75,7 +71,7 @@ def load_model(path, size=None):
                 return rfdetr.from_checkpoint(str(path))
         except Exception as e:
             print(f"  from_checkpoint could not load it ({e}); trying the sizes one by one...", flush=True)
-    # older rfdetr: guess the size from the checkpoint, then try the others
+    # older rfdetr: guess the size from the checkpoint, then try all sizes
     hint = ""
     try:
         import torch
@@ -99,14 +95,14 @@ def load_model(path, size=None):
         try:
             print(f"  trying {name}...", flush=True)
             return cls(pretrain_weights=str(path))
-        except Exception as e:                           # wrong size: weights don't fit
+        except Exception as e:
             last_err = e
     raise RuntimeError(f"Could not load {path} with any RF-DETR size. Pass --size. Last error: {last_err}")
 
 
 def class_name_list(model):
     names = getattr(model, "class_names", None)
-    if isinstance(names, dict):                          # some versions: {1: 'a', 2: 'b'}
+    if isinstance(names, dict):                          # {1: 'a', 2: 'b'} in some versions
         out = ["_unused"] * (max(names) + 1)
         for k, v in names.items():
             out[int(k)] = v

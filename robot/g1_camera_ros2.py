@@ -1,36 +1,15 @@
 #!/usr/bin/env python3
-"""
-KARIS: G1 head camera (D435i) -> ROS 2. Runs on the G1 developer computer (PC2,
-192.168.123.164, ROS 2 Foxy). Replaces g1_stream_server.py: instead of a private
-TCP stream, the frames go out as normal ROS 2 topics that any computer on the
-robot network can subscribe to.
+"""G1 head camera (RealSense D435i) -> ROS 2 topics. Runs on the G1 PC2 (ROS 2 Foxy),
+started by start_head_camera.sh.
 
-Published (namespace /g1/head_camera, the same names realsense2_camera uses):
-    color/image_raw/compressed                    sensor_msgs/CompressedImage  JPEG
-    aligned_depth_to_color/image_raw/compressedDepth  sensor_msgs/CompressedImage  16-bit PNG, mm
-    color/camera_info                             sensor_msgs/CameraInfo
-    aligned_depth_to_color/camera_info            sensor_msgs/CameraInfo (same K: depth is aligned)
-  with publish_raw:=true also the uncompressed
-    color/image_raw  (bgr8)  and  aligned_depth_to_color/image_raw  (16UC1)
-  (about 15 MB/s at 15 Hz: fine on the cable, too much for WiFi).
+Topics under /g1/head_camera:
+    color/image_raw/compressed                         JPEG
+    aligned_depth_to_color/image_raw/compressedDepth   16-bit PNG in mm, aligned to colour
+    color/camera_info, aligned_depth_to_color/camera_info
+    color/image_raw, aligned_depth_to_color/image_raw  only with publish_raw:=true
 
-Colour and depth of one frame carry the SAME stamp, and the depth is aligned
-to the colour camera (rs.align), exactly like g1_capture.py and g1_stream_server.py.
-The compressedDepth format is the one image_transport uses, so rqt_image_view and
-`ros2 run image_transport republish` can read it too.
-
-Run on the G1 (see start_head_camera.sh, which sets up the environment):
-    sudo systemctl stop teleimager.service      # only one program can use the camera
-    bash start_head_camera.sh
-    bash start_head_camera.sh --ros-args -p publish_rate:=30.0 -p width:=1280 -p height:=720
-
-Parameters (--ros-args -p name:=value):
-    width, height, fps    camera mode (640, 480, 30)
-    publish_rate          frames per second sent out (15.0); the camera keeps running at fps
-    jpeg_quality          colour compression (90)
-    png_level             depth PNG compression 0-9 (1 = fast)
-    publish_raw           also publish uncompressed images (false)
-    frame_id              TF frame of the images (head_camera_color_optical_frame)
+Colour and depth of a frame share one stamp. Parameters: width, height, fps (640, 480, 30),
+publish_rate (15.0), jpeg_quality (90), png_level (1), publish_raw (false), frame_id.
 """
 import array
 import struct
@@ -46,19 +25,17 @@ from rclpy.time import Time
 from rclpy.qos import QoSProfile
 try:
     from rclpy.qos import ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
-except ImportError:                     # older rclpy names
+except ImportError:
     from rclpy.qos import (QoSReliabilityPolicy as ReliabilityPolicy,
                            QoSHistoryPolicy as HistoryPolicy, QoSDurabilityPolicy as DurabilityPolicy)
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 
-# compressed_depth_image_transport puts this 12-byte header in front of the PNG:
-# int32 format (0 = INV_DEPTH, unused for 16UC1), float32 depthQuantA, float32 depthQuantB
+# compressed_depth_image_transport header: int32 format, float32 depthQuantA, depthQuantB
 DEPTH_HEADER = struct.pack("<iff", 0, 0.0, 0.0)
 
-# images: newest frame only, never block the camera (subscribers should use the same)
 IMAGE_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
                        history=HistoryPolicy.KEEP_LAST, depth=1)
-# camera_info: reliable + transient local, so a late subscriber still gets it
+# transient local: late subscribers still get camera_info
 INFO_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST,
                       depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
@@ -73,14 +50,14 @@ class RealSense:
         self.intr = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
         self.align = rs.align(rs.stream.color)
         self.lock = threading.Lock()
-        self.latest = None          # (seq, time.time(), bgr, depth_uint16)
+        self.latest = None          # (seq, time, bgr, depth_uint16)
         self.seq = 0
         self.running = True
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
 
     def _start(self, width, height, fps, attempts=3):
-        """If the camera sends nothing (common right after teleimager used it): reset, retry."""
+        """Start the camera; reset and retry if it sends nothing."""
         for attempt in range(1, attempts + 1):
             pipe, cfg = rs.pipeline(), rs.config()
             cfg.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
@@ -192,7 +169,7 @@ class G1CameraNode(Node):
             return
         seq, t_cap, bgr, depth = frame
         self.last_seq = seq
-        # stamp = capture time (robot clock; run chrony/NTP on both computers for latency numbers)
+        # capture time on the robot clock
         stamp = Time(nanoseconds=int(t_cap * 1e9)).to_msg()
 
         ok_c, jpg = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
@@ -203,7 +180,7 @@ class G1CameraNode(Node):
         c = CompressedImage()
         c.header.stamp, c.header.frame_id = stamp, self.frame_id
         c.format = "bgr8; jpeg compressed bgr8"
-        c.data = array.array("B", jpg.tobytes())   # array: fast, no per-byte check
+        c.data = array.array("B", jpg.tobytes())
         d = CompressedImage()
         d.header.stamp, d.header.frame_id = stamp, self.frame_id
         d.format = "16UC1; compressedDepth png"
