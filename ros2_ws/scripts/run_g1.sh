@@ -78,6 +78,31 @@ if [[ "$MODE" == '--check' ]]; then
   exit 0
 fi
 
+# G1_STARTUP_DEFAULTS_V1: explicit defaults for the physical MoveIt-XR run.
+# Caller overrides remain possible for troubleshooting; never change upstream VR.
+export G1_GRAVITY_MODEL="${G1_GRAVITY_MODEL:-inspire_ftp}"
+export G1_GOAL_CHECK_MODE="${G1_GOAL_CHECK_MODE:-wrist}"
+case "$G1_GRAVITY_MODEL" in
+  xr|inspire_ftp) ;;
+  *) echo "Invalid G1_GRAVITY_MODEL=$G1_GRAVITY_MODEL (xr or inspire_ftp)" >&2; exit 2 ;;
+esac
+case "$G1_GOAL_CHECK_MODE" in
+  joint|wrist) ;;
+  *) echo "Invalid G1_GOAL_CHECK_MODE=$G1_GOAL_CHECK_MODE (joint or wrist)" >&2; exit 2 ;;
+esac
+# Fail closed if the requested new modes are not installed; otherwise a
+# launcher could silently use the original model or original joint check.
+if [[ "$G1_GRAVITY_MODEL" == inspire_ftp ]] && \
+   ! grep -q 'G1_INSPIRE_FTP_GRAVITY_V1' /workspace/src/g1_xr_bridge/launch_g1_moveit_xr.sh; then
+  echo 'Inspire FTP gravity integration not installed. No motor controller started.' >&2
+  exit 2
+fi
+if [[ "$G1_GOAL_CHECK_MODE" == wrist ]] && \
+   ! grep -q 'G1_WRIST_GOAL_CHECK_V1' /workspace/src/g1_xr_bridge/ros2_headless_moveit_action.py; then
+  echo 'Wrist-goal completion integration not installed. No motor controller started.' >&2
+  exit 2
+fi
+echo "G1 defaults: gravity=$G1_GRAVITY_MODEL; goal_check=$G1_GOAL_CHECK_MODE"
 echo 'WARNING: Next step activates physical Unitree G1 arm control.'
 echo 'A trained operator, clear area, and independent tested stop method are REQUIRED.'
 echo 'This launcher and Ctrl+C are NOT an emergency stop.'

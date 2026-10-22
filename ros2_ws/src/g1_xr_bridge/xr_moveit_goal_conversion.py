@@ -42,6 +42,9 @@ def convert_goal(msg, baseline=None):
             positions, velocities = expanded_q, expanded_v
         points.append(Waypoint(seconds, positions, velocities))
     traj = Trajectory(ARM_JOINT_NAMES if is_single_arm else names, points)
-    if len(points) < 2 or points[0].time_from_start != 0.0 or traj.duration > 60.0:
-        raise TrajectoryError('Offline test requires 2+ points, t0=0, duration <= 60 seconds')
+    # G1_BOUNDED_WRIST_CORRECTION_V1: zero-motion single-point goals are
+    # checked against *fresh* physical feedback by the action server. Valid
+    # short multi-point trajectories are no longer rejected for duration <0.5s.
+    if traj.duration > 60.0 or (len(points) > 1 and points[0].time_from_start != 0.0):
+        raise TrajectoryError('Multi-point trajectory requires t0=0, all durations <= 60 seconds')
     return traj

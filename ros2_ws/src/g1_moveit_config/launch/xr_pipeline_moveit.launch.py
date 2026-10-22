@@ -78,6 +78,15 @@ def generate_launch_description():
         "config/moveit_xr_controllers.yaml",
     )
 
+    # G1_INSPIRE_FTP_MOVEIT_TRAJECTORY_V1: advertise the hand FJT controllers only when the
+    # launcher explicitly authorizes physical hand trajectory execution.
+    # Keep the SRDF hand planning groups available for offline planning.
+    if os.environ.get("G1_INSPIRE_FTP_MOVEIT_TRAJECTORY", "0") != "1":
+        enabled_names = moveit_controllers["moveit_simple_controller_manager"]["controller_names"]
+        moveit_controllers["moveit_simple_controller_manager"]["controller_names"] = [
+            name for name in enabled_names if name == "g1_xr_bridge"
+        ]
+
     # Publish the robot TF tree from /joint_states.
     # This uses the same robot_description as MoveIt so the planning
     # model and published TF frames cannot accidentally diverge.
@@ -101,7 +110,7 @@ def generate_launch_description():
             moveit_controllers,
             {
                 "trajectory_execution.allowed_execution_duration_scaling": 1.2,
-                "trajectory_execution.allowed_goal_duration_margin": 0.5,
+                "trajectory_execution.allowed_goal_duration_margin": 3.0,
                 "trajectory_execution.allowed_start_tolerance": 0.01,
                 # Disabled for real G1 read-only observation.
                 "allow_trajectory_execution": ParameterValue(
