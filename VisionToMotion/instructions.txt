@@ -1,0 +1,6 @@
+--- För att kunna köra readBag.py måste man köra en colcon build på ROS paketet karis_interfaces först
+--- Annars vet koden inte topic och paketstrukturen
+
+colcon build --packages-select karis_interfaces
+
+--- Ändra också input o output filvägar till ens egna så att koden kommer åt filerna
