@@ -3,13 +3,14 @@
 <package format="3">
   <name>karis_bringup</name>
   <version>0.1.0</version>
-  <description>KARIS launch files and configs: perception (perception container) and robot model / motion (MoveIt container), all ROS 2 Humble.</description>
+  <description>KARIS launch files and configs: perception (perception container) and motion (the team's MoveIt container), all ROS 2 Humble.</description>
   <maintainer email="kim.svedberg03@gmail.com">Kim Svedberg</maintainer>
   <license>MIT</license>
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
-  <exec_depend>karis_perception</exec_depend>
+  <!-- no <exec_depend> on karis_perception / karis_task: each container builds only its own
+       packages (build.sh), and colcon would otherwise require the other container's build -->
 
   <export>
     <build_type>ament_python</build_type>
