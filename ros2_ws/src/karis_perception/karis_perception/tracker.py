@@ -64,14 +64,25 @@ def draw_frame(rgb, tracks, slots, ests, K, fpu, info):
 
     h = vis.shape[0]
     panel = np.full((h, 360, 3), 30, np.uint8)
+    # info["T_base"]: 4x4 base_frame <- camera from TF (None = no robot model running)
+    T_base, base = info.get("T_base"), info.get("base_frame") or "base"
     lines = [(f"frame {info['frame']}  t={info['t']:.2f}s", (255, 255, 255)),
-             (f"{info['mode']}  {info['ms']:.0f} ms", (255, 255, 255)), ("", None)]
+             (f"{info['mode']}  {info['ms']:.0f} ms", (255, 255, 255))]
+    if info.get("base_frame"):
+        lines.append((f"{base}: " + ("from TF" if T_base is not None else "no TF (robot model not running)"),
+                      (150, 255, 150) if T_base is not None else (255, 180, 80)))
+    lines.append(("", None))
     for trk in tracks.values():
         t = trk["pose"][:3, 3]
         r = vision.rot_to_rpy_deg(trk["pose"][:3, :3])
         lines.append((trk["id"], vision.class_color(trk["cls_id"])))
-        lines.append((f"  xyz {t[0]:+.3f} {t[1]:+.3f} {t[2]:+.3f} m", (220, 220, 220)))
-        lines.append((f"  rpy {r[0]:+.0f} {r[1]:+.0f} {r[2]:+.0f} deg", (220, 220, 220)))
+        lines.append((f"  cam xyz {t[0]:+.3f} {t[1]:+.3f} {t[2]:+.3f} m", (220, 220, 220)))
+        lines.append((f"  cam rpy {r[0]:+.0f} {r[1]:+.0f} {r[2]:+.0f} deg", (220, 220, 220)))
+        if T_base is not None:
+            pb = T_base @ trk["pose"]
+            tb, rb = pb[:3, 3], vision.rot_to_rpy_deg(pb[:3, :3])
+            lines.append((f"  {base[:6]} xyz {tb[0]:+.3f} {tb[1]:+.3f} {tb[2]:+.3f} m", (150, 255, 150)))
+            lines.append((f"  {base[:6]} rpy {rb[0]:+.0f} {rb[1]:+.0f} {rb[2]:+.0f} deg", (150, 255, 150)))
     y = 20
     for text, col in lines:
         if y > h - 8:
