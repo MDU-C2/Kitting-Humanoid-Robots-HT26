@@ -412,8 +412,10 @@ class PoseEstimatorNode(Node):
         return out
 
     def _annotate(self, bgr, tm, stamp, frame):
+        T_base = self._lookup(self.target_frame, frame)[0] if self.target_frame else None
         vis = self.tracker.draw(bgr, {"frame": self.n, "t": time.perf_counter() - self.t0,
-                                      "mode": tm["mode"], "ms": tm["frame_ms"]})
+                                      "mode": tm["mode"], "ms": tm["frame_ms"],
+                                      "T_base": T_base, "base_frame": self.target_frame})
         fps = self._fps()
         import cv2
         cv2.putText(vis, f"ROS {fps:4.1f} fps", (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
