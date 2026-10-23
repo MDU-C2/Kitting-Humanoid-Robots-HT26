@@ -3,6 +3,7 @@ string object_id      # this tracked part, e.g. "rund_mutter_1", or
 string class_name     # any part of this class (used when object_id is "")
 string place_slot     # class of the slot to place it in, e.g. "Rund mutter HOLE 11432713" ("" = pick only)
 bool dry_run          # true = plan and report the target poses, do not move the robot
+string arm            # "right" | "left" | "auto" (the part's side: y > 0 = left) | "" = pick_server's planning_group
 ---
 bool success
 string message

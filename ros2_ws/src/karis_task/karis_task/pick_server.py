@@ -31,6 +31,13 @@ wrist_offset_xyz ([0,0,0] m, added to every wrist target, e.g. a measured wrist-
 z_reference ("top": heights from the part's top, "centre": from the part's centre),
 approach_only (false; true = only move to the approach pose above the part, then stop).
 
+Arm per goal: the goal's `arm` field ("right", "left", "auto" = the part's side, "" = the
+planning_group above). The parameters describe the arm of planning_group; for the other arm
+the group, ee_link, wrist_offset_xyz and hand orientation are mirrored left <-> right
+(y and the quaternion's x, z change sign), e.g.
+    ros2 action send_goal /karis/pick karis_interfaces/action/PickObject \
+      "{class_name: 'Ratblock Chamfer', arm: 'left', dry_run: true}" --feedback
+
 Example, the wrist 10 cm above a measured grasp pose (offset and orientation from the
 team's arm test), arm moves once and stops:
     ros2 run karis_task pick_server --ros-args -p execute:=true -p approach_only:=true \
@@ -92,8 +99,31 @@ class PickServer(Node):
             self.get_logger().warn("moveit_msgs not found: only dry runs are possible")
         self.server = ActionServer(self, PickObject, "/karis/pick", self.run,
                                    goal_callback=self.on_goal, callback_group=cb)
+        self._cfg0 = {"side": self._side(self.group), "group": self.group, "ee": self.ee_link,
+                      "off": list(self.wrist_off), "quat": list(self.grasp_quat), "rpy": list(self.grasp_rpy)}
         self.get_logger().info(f"/karis/pick ready (base '{self.base_frame}', group '{self.group}', "
                                f"ee '{self.ee_link}', execute={self.execute})")
+
+    @staticmethod
+    def _side(name):
+        return "left" if "left" in name else "right"
+
+    def _arm_config(self, arm):
+        """(group, ee_link, wrist_offset, quat_xyzw, rpy) for "left"/"right": the configured arm
+        as given, the other one mirrored across the robot's xz-plane (y -> -y)."""
+        base = self._cfg0
+        if arm == base["side"]:
+            return base
+        swap = lambda n: n.replace(base["side"], arm)   # noqa: E731
+        qx, qy, qz, qw = base["quat"]
+        r, pch, y = base["rpy"]
+        off = base["off"]
+        return {"side": arm, "group": swap(base["group"]), "ee": swap(base["ee"]),
+                "off": [off[0], -off[1], off[2]], "quat": [-qx, qy, -qz, qw], "rpy": [-r, pch, -y]}
+
+    def _use_arm(self, cfg):
+        self.group, self.ee_link = cfg["group"], cfg["ee"]
+        self.wrist_off, self.grasp_quat, self.grasp_rpy = list(cfg["off"]), list(cfg["quat"]), list(cfg["rpy"])
 
     def on_goal(self, goal):
         if self.busy:
@@ -204,6 +234,7 @@ class PickServer(Node):
             return self._run(gh)
         finally:
             self.set_active("")
+            self._use_arm(self._cfg0)          # back to the configured arm
             self.busy = False
 
     def _run(self, gh):
@@ -225,6 +256,15 @@ class PickServer(Node):
         self.get_logger().info(f"Pick {part.object_id} at "
                                f"({part.box_pose.position.x:+.3f} {part.box_pose.position.y:+.3f} "
                                f"{part.box_pose.position.z:+.3f}) in {self.base_frame}")
+        arm = (g.arm or "").strip().lower()
+        if arm == "auto":
+            arm = "left" if part.box_pose.position.y > 0 else "right"
+        if arm not in ("", "left", "right"):
+            gh.abort()
+            result.message = f"arm '{g.arm}': use right, left, auto or empty"
+            return result
+        self._use_arm(self._arm_config(arm) if arm else self._cfg0)
+        self.get_logger().info(f"  arm: {self._side(self.group)} ({self.group}, {self.ee_link})")
         self.set_active(part.object_id)
         c = part.box_pose.position
         top = part.box_size.z / 2 if self.z_ref == "top" else 0.0
@@ -268,9 +308,9 @@ class PickServer(Node):
         step("done", 1.0)
         gh.succeed()
         result.success = True
-        result.message = ("dry run: poses computed and published on /karis/task/target_pose"
-                          if g.dry_run else "planned only (execute:=false)" if plan_only
-                          else "done")
+        what = ("dry run: poses computed and published on /karis/task/target_pose"
+                if g.dry_run else "planned only (execute:=false)" if plan_only else "done")
+        result.message = f"{self._side(self.group)} arm: {what}"
         return result
 
 
