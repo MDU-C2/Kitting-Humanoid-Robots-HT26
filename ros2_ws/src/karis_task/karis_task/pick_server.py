@@ -25,7 +25,17 @@ poses are still computed and published, which checks the whole vision -> motion 
 Parameters: base_frame (pelvis), planning_group (right_arm), ee_link (right_wrist_yaw_link),
 approach_height (0.08 m), grasp_offset_z (0.0 m), lift_height (0.10 m),
 grasp_rpy_deg ([0, 90, 0]), execute (false = plan only), velocity_scale (0.2),
-planning_time (5.0 s).
+planning_time (5.0 s),
+grasp_quat_xyzw ([0,0,0,0] = use grasp_rpy_deg; else this hand orientation in base_frame),
+wrist_offset_xyz ([0,0,0] m, added to every wrist target, e.g. a measured wrist-to-part offset),
+z_reference ("top": heights from the part's top, "centre": from the part's centre),
+approach_only (false; true = only move to the approach pose above the part, then stop).
+
+Example, the wrist 10 cm above a measured grasp pose (offset and orientation from the
+team's arm test), arm moves once and stops:
+    ros2 run karis_task pick_server --ros-args -p execute:=true -p approach_only:=true \
+      -p z_reference:=centre -p wrist_offset_xyz:="[-0.197, -0.036, 0.1127]" \
+      -p grasp_quat_xyzw:="[-0.7087, 0.0589, 0.0797, 0.6985]" -p approach_height:=0.10
 """
 import math
 import time
@@ -58,6 +68,10 @@ class PickServer(Node):
         self.ee_link = p("ee_link", "right_wrist_yaw_link")
         self.approach = float(p("approach_height", 0.08))
         self.grasp_dz = float(p("grasp_offset_z", 0.0))
+        self.grasp_quat = [float(v) for v in p("grasp_quat_xyzw", [0.0, 0.0, 0.0, 0.0])]
+        self.wrist_off = [float(v) for v in p("wrist_offset_xyz", [0.0, 0.0, 0.0])]
+        self.z_ref = str(p("z_reference", "top"))
+        self.approach_only = bool(p("approach_only", False))
         self.lift = float(p("lift_height", 0.10))
         self.grasp_rpy = [math.radians(a) for a in p("grasp_rpy_deg", [0.0, 90.0, 0.0])]
         self.execute = bool(p("execute", False))
@@ -122,9 +136,11 @@ class PickServer(Node):
         ps.header.frame_id = self.base_frame
         ps.header.stamp = self.get_clock().now().to_msg()
         ps.pose = Pose()
-        ps.pose.position.x, ps.pose.position.y = position.x, position.y
-        ps.pose.position.z = position.z + dz
-        q = quat_from_rpy(*self.grasp_rpy)
+        ps.pose.position.x = position.x + self.wrist_off[0]
+        ps.pose.position.y = position.y + self.wrist_off[1]
+        ps.pose.position.z = position.z + dz + self.wrist_off[2]
+        n = math.sqrt(sum(v * v for v in self.grasp_quat))
+        q = [v / n for v in self.grasp_quat] if n > 1e-6 else quat_from_rpy(*self.grasp_rpy)
         o = ps.pose.orientation
         o.x, o.y, o.z, o.w = q
         return ps
@@ -211,13 +227,16 @@ class PickServer(Node):
                                f"{part.box_pose.position.z:+.3f}) in {self.base_frame}")
         self.set_active(part.object_id)
         c = part.box_pose.position
-        top = part.box_size.z / 2
+        top = part.box_size.z / 2 if self.z_ref == "top" else 0.0
         moves = [("approaching", self.pose_at(hdr, c, top + self.approach)),
                  ("grasping", self.pose_at(hdr, c, top + self.grasp_dz)),
                  ("lifting", self.pose_at(hdr, c, top + self.lift))]
         result.grasp_pose = moves[1][1]
+        if self.approach_only:
+            moves = moves[:1]
+            self.get_logger().info("approach_only: moving only to the approach pose")
 
-        if g.place_slot:
+        if g.place_slot and not self.approach_only:
             slot, shdr = self.locate(g.place_slot, "")
             if slot is None:
                 gh.abort()
