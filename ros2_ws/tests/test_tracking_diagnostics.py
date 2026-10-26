@@ -39,6 +39,10 @@ class TrackingDiagnosticsTests(unittest.TestCase):
             _headless_command_q=np.full(14, 0.04),
             arm_velocity_limit=0.25,
             _headless_max_command_lead_rad=0.035,
+            msg=types.SimpleNamespace(motor_cmd=[
+                types.SimpleNamespace(q=0.04, tau=0.0, kp=0.0)
+                for _ in range(29)
+            ]),
             mode_machine=6,
             get_current_dual_arm_q=lambda: np.zeros(14),
             get_current_dual_arm_dq=lambda: np.zeros(14),

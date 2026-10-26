@@ -16,10 +16,15 @@ FILES = {
     'g1_readonly_observer.py', 'g1_joint_state_relay.py',
     'xr_moveit_goal_conversion.py', 'xr_arm_trajectory.py',
     'xr_ipc_protocol.py', 'g1_state_contract.py', 'g1_ipc_paths.py',
+    'g1_ftp_hand_math.py', 'g1_ftp_hand_trajectory_math.py',
+    'g1_inspire_ftp_bridge.py', 'g1_inspire_ftp_cli.py',
+    'g1_inspire_ftp_joint_state_relay.py',
+    'ros2_g1_inspire_ftp_hand_action.py', 'g1_wrist_correction.py',
+    'g1_wrist_pose.py',
 }
 
 class CleanDeploymentTests(unittest.TestCase):
-    def test_only_nine_runtime_python_modules(self):
+    def test_expected_runtime_python_modules(self):
         self.assertEqual({p.name for p in BR.glob('*.py')}, FILES)
         self.assertFalse((BR / 'experiments').exists())
 

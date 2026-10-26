@@ -43,7 +43,7 @@ class CorrectionTests(unittest.TestCase):
         p.add_argument('--workspace', default=None)
         p.add_argument('--urdf', default=None)
         cls.cmd_args, _ = p.parse_known_args()
-        root = Path(cls.cmd_args.repo or cls.cmd_args.workspace) if (cls.cmd_args.repo or cls.cmd_args.workspace) else (HERE / '..' / 'g1_correction_testrepo')
+        root = Path(cls.cmd_args.repo or cls.cmd_args.workspace) if (cls.cmd_args.repo or cls.cmd_args.workspace) else HERE.parent
         src = root / 'ros2_ws/src' if (root / 'ros2_ws/src/g1_xr_bridge').is_dir() else root / 'src'
         bridge = src / 'g1_xr_bridge'
         cls.bridge = bridge
