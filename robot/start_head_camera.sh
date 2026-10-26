@@ -3,6 +3,7 @@
 #     bash start_head_camera.sh                                  cable (eth0)
 #     bash start_head_camera.sh --wifi --laptop 192.168.123.184  WiFi; --laptop = the laptop's address
 #     bash start_head_camera.sh --wifi --laptop 192.168.123.184 --ros-args -p publish_rate:=10.0
+#     bash start_head_camera.sh --wifi --laptop 192.168.123.184 --tf   + robot model TF (pelvis)
 #
 # Options (or the same as environment variables):
 #   --wifi            use the robot's WiFi (wlan0) instead of its cable network (eth0)  [ROBOT_IF=wlan0]
@@ -10,6 +11,10 @@
 #   --laptop IP       send to this computer directly (needed over WiFi when multicast  [LAPTOP_IP="IP IP2"]
 #                     does not get through); repeat for several computers
 #   --env NAME        conda env with pyrealsense2 + opencv                              [CONDA_ENV=NAME]
+#   --tf              also publish TF pelvis -> torso_link -> d435_link from the real waist  [ROBOT_TF=1]
+#                     joints (g1_tf_ros2.py, read only). NOT while the motion laptop runs its
+#                     robot model (run_g1.sh / observe_g1_tf.sh): TF would have two sources.
+#   --tf-rate HZ      TF rate (default 50)                                               [TF_RATE=HZ]
 # Everything after them (e.g. --ros-args -p publish_rate:=10.0) goes to g1_camera_ros2.py.
 #
 # Sets up ROS 2 Foxy with CycloneDDS, frees the camera, and runs g1_camera_ros2.py with a
@@ -19,6 +24,8 @@
 CONDA_ENV="${CONDA_ENV:-kitting38}"       # conda env with pyrealsense2 + opencv (Python 3.8, like Foxy)
 ROBOT_IF="${ROBOT_IF:-eth0}"              # PC2's interface on 192.168.123.x
 LAPTOP_IP="${LAPTOP_IP:-}"                # computers to send to directly (unicast peers)
+ROBOT_TF="${ROBOT_TF:-0}"                 # 1 = also run g1_tf_ros2.py (robot model TF)
+TF_RATE="${TF_RATE:-50}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" # must be the same on every computer
 # -----------------------------------------------------------------------------
 
@@ -28,7 +35,9 @@ while [ $# -gt 0 ]; do
         --if)     ROBOT_IF="$2"; shift 2 ;;
         --laptop) LAPTOP_IP="$LAPTOP_IP $2"; shift 2 ;;
         --env)    CONDA_ENV="$2"; shift 2 ;;
-        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+        --tf)     ROBOT_TF=1; shift ;;
+        --tf-rate) TF_RATE="$2"; shift 2 ;;
+        -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
         *) break ;;
     esac
 done
@@ -41,14 +50,22 @@ if [ -f "$HOME/unitree_ros2/cyclonedds_ws/install/setup.bash" ]; then
     source "$HOME/unitree_ros2/cyclonedds_ws/install/setup.bash"
 fi
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+_peers=""
+for _p in $LAPTOP_IP; do _peers="$_peers<Peer Address=\"$_p\"/>"; done
+_disc=""
+[ -n "$_peers" ] && _disc="<Discovery><Peers>$_peers</Peers></Discovery>"
 if [ -n "$CYCLONEDDS_URI" ]; then
     echo "Using CYCLONEDDS_URI from this shell (unset CYCLONEDDS_URI to let --wifi/--laptop set it)"
+    TF_URI="$CYCLONEDDS_URI"
 else
-    _peers=""
-    for _p in $LAPTOP_IP; do _peers="$_peers<Peer Address=\"$_p\"/>"; done
-    _disc=""
-    [ -n "$_peers" ] && _disc="<Discovery><Peers>$_peers</Peers></Discovery>"
     export CYCLONEDDS_URI="<CycloneDDS><Domain><General><NetworkInterfaceAddress>${ROBOT_IF}</NetworkInterfaceAddress></General>$_disc</Domain></CycloneDDS>"
+    # The TF node reads /lowstate on the cable network (eth0) and sends TF on ROBOT_IF: over WiFi it
+    # needs both interfaces (CycloneDDS >= 0.10, i.e. Unitree's cyclonedds_ws build).
+    if [ "$ROBOT_IF" = eth0 ]; then
+        TF_URI="$CYCLONEDDS_URI"
+    else
+        TF_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"eth0\"/><NetworkInterface name=\"${ROBOT_IF}\"/></Interfaces></General>$_disc</Domain></CycloneDDS>"
+    fi
 fi
 if ! ip -4 -o addr show "$ROBOT_IF" 2>/dev/null | grep -q inet; then
     echo "WARNING: interface $ROBOT_IF has no IPv4 address (cable: eth0, WiFi: --wifi)"
@@ -75,4 +92,21 @@ if systemctl is-active --quiet teleimager.service 2>/dev/null; then
 fi
 
 echo "ROS_DOMAIN_ID=$ROS_DOMAIN_ID  RMW=$RMW_IMPLEMENTATION  interface=$ROBOT_IF ($(ip -4 -o addr show "$ROBOT_IF" 2>/dev/null | awk '{print $4}'))  laptop peers:${LAPTOP_IP:- none}  python=$(command -v $PY)"
-exec $PY "$HERE/g1_camera_ros2.py" "$@"
+
+# 4. Robot model TF (optional, own process: its own rate, and a camera restart does not stop it)
+TF_PID=""
+if [ "$ROBOT_TF" = 1 ]; then
+    if ! /usr/bin/python3 -c "import unitree_hg.msg" 2>/dev/null; then
+        echo "ERROR: --tf needs the unitree_hg messages (~/unitree_ros2/cyclonedds_ws/install/setup.bash)."
+        exit 1
+    fi
+    echo "Robot model TF: pelvis -> torso_link -> d435_link at ${TF_RATE} Hz (read only, /lowstate via eth0)"
+    CYCLONEDDS_URI="$TF_URI" /usr/bin/python3 "$HERE/g1_tf_ros2.py" --ros-args -p publish_rate:="$TF_RATE" &
+    TF_PID=$!
+    trap '[ -n "$TF_PID" ] && kill "$TF_PID" 2>/dev/null; wait 2>/dev/null' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    $PY "$HERE/g1_camera_ros2.py" "$@"
+else
+    exec $PY "$HERE/g1_camera_ros2.py" "$@"
+fi
