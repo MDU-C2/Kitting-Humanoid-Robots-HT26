@@ -15,6 +15,7 @@
 #                     joints (g1_tf_ros2.py, read only). NOT while the motion laptop runs its
 #                     robot model (run_g1.sh / observe_g1_tf.sh): TF would have two sources.
 #   --tf-rate HZ      TF rate (default 50)                                               [TF_RATE=HZ]
+#   --sdk-python PATH a Python with unitree_sdk2py (default: found automatically)       [SDK_PY=PATH]
 # Everything after them (e.g. --ros-args -p publish_rate:=10.0) goes to g1_camera_ros2.py.
 #
 # Sets up ROS 2 Foxy with CycloneDDS, frees the camera, and runs g1_camera_ros2.py with a
@@ -26,6 +27,7 @@ ROBOT_IF="${ROBOT_IF:-eth0}"              # PC2's interface on 192.168.123.x
 LAPTOP_IP="${LAPTOP_IP:-}"                # computers to send to directly (unicast peers)
 ROBOT_TF="${ROBOT_TF:-0}"                 # 1 = also run g1_tf_ros2.py (robot model TF)
 TF_RATE="${TF_RATE:-50}"
+SDK_PY="${SDK_PY:-}"                      # Python with unitree_sdk2py, for --tf
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" # must be the same on every computer
 # -----------------------------------------------------------------------------
 
@@ -37,6 +39,7 @@ while [ $# -gt 0 ]; do
         --env)    CONDA_ENV="$2"; shift 2 ;;
         --tf)     ROBOT_TF=1; shift ;;
         --tf-rate) TF_RATE="$2"; shift 2 ;;
+        --sdk-python) SDK_PY="$2"; shift 2 ;;
         -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
         *) break ;;
     esac
@@ -56,16 +59,8 @@ _disc=""
 [ -n "$_peers" ] && _disc="<Discovery><Peers>$_peers</Peers></Discovery>"
 if [ -n "$CYCLONEDDS_URI" ]; then
     echo "Using CYCLONEDDS_URI from this shell (unset CYCLONEDDS_URI to let --wifi/--laptop set it)"
-    TF_URI="$CYCLONEDDS_URI"
 else
     export CYCLONEDDS_URI="<CycloneDDS><Domain><General><NetworkInterfaceAddress>${ROBOT_IF}</NetworkInterfaceAddress></General>$_disc</Domain></CycloneDDS>"
-    # The TF node reads /lowstate on the cable network (eth0) and sends TF on ROBOT_IF: over WiFi it
-    # needs both interfaces (CycloneDDS >= 0.10, i.e. Unitree's cyclonedds_ws build).
-    if [ "$ROBOT_IF" = eth0 ]; then
-        TF_URI="$CYCLONEDDS_URI"
-    else
-        TF_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"eth0\"/><NetworkInterface name=\"${ROBOT_IF}\"/></Interfaces></General>$_disc</Domain></CycloneDDS>"
-    fi
 fi
 if ! ip -4 -o addr show "$ROBOT_IF" 2>/dev/null | grep -q inet; then
     echo "WARNING: interface $ROBOT_IF has no IPv4 address (cable: eth0, WiFi: --wifi)"
@@ -93,17 +88,25 @@ fi
 
 echo "ROS_DOMAIN_ID=$ROS_DOMAIN_ID  RMW=$RMW_IMPLEMENTATION  interface=$ROBOT_IF ($(ip -4 -o addr show "$ROBOT_IF" 2>/dev/null | awk '{print $4}'))  laptop peers:${LAPTOP_IP:- none}  python=$(command -v $PY)"
 
-# 4. Robot model TF (optional, own process: its own rate, and a camera restart does not stop it)
+# 4. Robot model TF (optional, own processes: its own rate, and a camera restart does not stop it).
+#    g1_waist_reader.py (Unitree SDK, rt/lowstate on eth0, read only) | g1_tf_ros2.py (ROS 2, TF)
 TF_PID=""
 if [ "$ROBOT_TF" = 1 ]; then
-    if ! /usr/bin/python3 -c "import unitree_hg.msg" 2>/dev/null; then
-        echo "ERROR: --tf needs the unitree_hg messages (~/unitree_ros2/cyclonedds_ws/install/setup.bash)."
+    if [ -z "$SDK_PY" ]; then
+        for _c in "$HOME/motiontest/bin/python" "$HOME/miniconda3/envs/tv/bin/python" \
+                  "$HOME/miniconda3/envs/inspire/bin/python"; do
+            if [ -x "$_c" ] && env -u PYTHONPATH "$_c" -c "import unitree_sdk2py" 2>/dev/null; then SDK_PY="$_c"; break; fi
+        done
+    fi
+    if [ -z "$SDK_PY" ] || ! env -u PYTHONPATH "$SDK_PY" -c "import unitree_sdk2py" 2>/dev/null; then
+        echo "ERROR: --tf needs a Python with unitree_sdk2py; give one with --sdk-python PATH."
         exit 1
     fi
-    echo "Robot model TF: pelvis -> torso_link -> d435_link at ${TF_RATE} Hz (read only, /lowstate via eth0)"
-    CYCLONEDDS_URI="$TF_URI" /usr/bin/python3 "$HERE/g1_tf_ros2.py" --ros-args -p publish_rate:="$TF_RATE" &
+    echo "Robot model TF: pelvis -> torso_link -> d435_link at ${TF_RATE} Hz (read only, rt/lowstate via eth0, SDK python $SDK_PY)"
+    ( env -u PYTHONPATH -u CYCLONEDDS_URI "$SDK_PY" -u "$HERE/g1_waist_reader.py" --if eth0 \
+        | /usr/bin/python3 "$HERE/g1_tf_ros2.py" --ros-args -p publish_rate:="$TF_RATE" ) &
     TF_PID=$!
-    trap '[ -n "$TF_PID" ] && kill "$TF_PID" 2>/dev/null; wait 2>/dev/null' EXIT
+    trap '[ -n "$TF_PID" ] && pkill -TERM -P "$TF_PID" 2>/dev/null; kill "$TF_PID" 2>/dev/null; wait 2>/dev/null' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
     $PY "$HERE/g1_camera_ros2.py" "$@"
