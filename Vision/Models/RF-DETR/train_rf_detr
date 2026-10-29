@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+from pathlib import Path
+from typing import Iterable
+
+import torch
+
+import rfdetr
+
+
+DEFAULT_DATASET_ROOT = Path(
+    r"D:\Robotik Projektkurs\repository\private\KARIS\VisionAspect\Data\KARIS.v8i.coco-segmentation"
+)
+DEFAULT_OUTPUT_DIR = Path("runs/rf_detr")
+DEFAULT_EPOCHS = 10
+DEFAULT_BATCH_SIZE = 1
+
+
+def _resolve_device(device: str | None = None) -> str:
+    if device:
+        return device
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def _copy_subset_annotations(ann_path: Path, image_ids: Iterable[int]) -> dict:
+    with ann_path.open("r", encoding="utf-8") as f:
+        ann_data = json.load(f)
+
+    chosen = set(image_ids)
+    filtered = {
+        "info": ann_data.get("info", {}),
+        "licenses": ann_data.get("licenses", []),
+        "categories": ann_data.get("categories", []),
+        "images": [img for img in ann_data.get("images", []) if img["id"] in chosen],
+        "annotations": [
+            ann for ann in ann_data.get("annotations", []) if ann.get("image_id") in chosen
+        ],
+    }
+    return filtered
+
+
+def create_smoke_subset(dataset_root: Path, output_dir: Path, max_train_images: int = 4, max_val_images: int = 2) -> Path:
+    dataset_root = dataset_root.resolve()
+    smoke_root = output_dir / "smoke_subset"
+    smoke_root.mkdir(parents=True, exist_ok=True)
+
+    for split_name, limit in (("train", max_train_images), ("valid", max_val_images)):
+        ann_path = dataset_root / split_name / "_annotations.coco.json"
+        if not ann_path.exists():
+            continue
+        with ann_path.open("r", encoding="utf-8") as f:
+            ann_data = json.load(f)
+
+        image_ids = [img["id"] for img in ann_data.get("images", [])[:limit]]
+        split_dir = smoke_root / split_name
+        split_dir.mkdir(parents=True, exist_ok=True)
+        (split_dir / "images").mkdir(exist_ok=True)
+
+        src_images_dir = dataset_root / split_name
+        for img_meta in [img for img in ann_data.get("images", []) if img["id"] in set(image_ids)]:
+            src_path = src_images_dir / img_meta["file_name"]
+            dst_path = split_dir / "images" / img_meta["file_name"]
+            if src_path.exists():
+                shutil.copy2(src_path, dst_path)
+
+        filtered = _copy_subset_annotations(ann_path, image_ids)
+        filtered["images"] = [
+            {**img, "file_name": str(Path("images") / Path(img["file_name"]).name)}
+            for img in filtered["images"]
+        ]
+        filtered_ann_path = split_dir / "_annotations.coco.json"
+        with filtered_ann_path.open("w", encoding="utf-8") as f:
+            json.dump(filtered, f)
+
+    return smoke_root
+
+
+def train_rf_detr(
+    dataset_root: Path = DEFAULT_DATASET_ROOT,
+    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    epochs: int = DEFAULT_EPOCHS,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    device: str | None = None,
+    lr: float = 1e-4,
+    subset_samples: int | None = 0,
+):
+    dataset_root = dataset_root.resolve()
+    ann_train = dataset_root / "train" / "_annotations.coco.json"
+    if not ann_train.exists():
+        raise FileNotFoundError(f"COCO train annotations not found: {ann_train}")
+
+    selected_root = dataset_root
+    if subset_samples is not None and subset_samples > 0:
+        selected_root = create_smoke_subset(
+            dataset_root,
+            output_dir,
+            max_train_images=subset_samples,
+            max_val_images=max(1, subset_samples // 2),
+        )
+
+    selected_root = selected_root.resolve()
+    output_dir = output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    device_name = _resolve_device(device)
+    model = rfdetr.RFDETRSegMedium()
+    print(f"Training RF-DETR Seg Medium on: {selected_root}")
+    print(f"Using device: {device_name}")
+    model.train(
+        dataset_dir=str(selected_root),
+        output_dir=str(output_dir),
+        epochs=epochs,
+        batch_size=batch_size,
+        eval_batch_size=batch_size,
+        device=device_name,
+        num_workers=0,
+        lr=lr,
+        accelerator="gpu" if device_name.startswith("cuda") else "cpu",
+        progress_bar="tqdm",
+    )
+
+    checkpoint = output_dir / "checkpoint_best_total.pth"
+    print(f"Training finished. Best checkpoint: {checkpoint}")
+    return checkpoint
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train RF-DETR Seg Medium on a COCO instance-segmentation dataset.")
+    parser.add_argument("--dataset-root", type=Path, default=DEFAULT_DATASET_ROOT)
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--device", type=str, default=None, help="cuda, cpu, or cuda:0")
+    parser.add_argument(
+        "--subset-samples",
+        type=int,
+        default=0,
+        help="Optional tiny smoke subset. Default 0 means train on the full dataset.",
+    )
+    args = parser.parse_args()
+
+    train_rf_detr(
+        dataset_root=args.dataset_root,
+        output_dir=args.output_dir,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        device=args.device,
+        lr=args.lr,
+        subset_samples=args.subset_samples,
+    )
