@@ -40,6 +40,7 @@ joint_limits:
     max_velocity: 0.5
     has_acceleration_limits: true
     max_acceleration: 1.0
+    max_position: 0.959931
 
   right_shoulder_pitch_joint:
     has_velocity_limits: true
@@ -82,4 +83,5 @@ joint_limits:
     max_velocity: 0.5
     has_acceleration_limits: true
     max_acceleration: 1.0
+    min_position: -0.959931
   # G1_FTP_NATIVE_URDF_MOTION_LIMITS_V1: hand limits are read from source URDF, not custom YAML.

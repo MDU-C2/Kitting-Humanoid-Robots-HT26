@@ -1,0 +1,17 @@
+# One FoundationPose step for one part, served by the Isaac ROS FoundationPose helper
+# (karis_isaac_fp). The perception node calls it instead of running FoundationPose itself.
+string track_id                    # identifies the part's tracking state in the helper
+string class_name                  # selects the mesh
+string mode                        # "register": pose from scratch (needs mask)
+                                   # "track":    pose from the part's previous pose (no mask)
+                                   # "forget":   drop the tracking state of track_id
+sensor_msgs/CompressedImage color  # JPEG/PNG colour; data may be empty if this frame (same
+                                   # header.stamp) was already sent in an earlier request
+sensor_msgs/CompressedImage depth  # 16UC1 PNG (compressedDepth) in MILLIMETRES, aligned to colour; same rule
+sensor_msgs/CameraInfo camera_info
+sensor_msgs/CompressedImage mask   # register only: PNG mono8, part pixels > 0, same size as colour
+---
+bool success
+string message                     # e.g. "frame not cached", "timeout", "unknown class"
+float64[16] pose                   # 4x4 row-major, CAD model frame in the camera optical frame [m]
+float32 processing_ms              # time in the helper (decode + Isaac ROS FoundationPose)

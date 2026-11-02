@@ -18,7 +18,7 @@
   </group>
 
 
-  <!-- G1_INSPIRE_FTP_MOVEIT_TRAJECTORY_V1: independent joints only; mimic joints follow URDF. -->
+  <!-- G1_INSPIRE_FTP_MOVEIT_TRAJECTORY: independent joints only; mimic joints follow URDF. -->
   <group name="left_hand">
     <joint name="left_little_1_joint"/>
     <joint name="left_ring_1_joint"/>
@@ -2139,5 +2139,118 @@
     <disable_collisions link1="right_wrist_pitch_link" link2="right_wrist_roll_link" reason="Adjacent"/>
     <disable_collisions link1="right_wrist_pitch_link" link2="right_wrist_yaw_link" reason="Adjacent"/>
     <disable_collisions link1="right_wrist_roll_link" link2="right_wrist_yaw_link" reason="Never"/>
+
+  <!-- LEFT ARM - Ready step 1-->
+  <group_state name="1_arm_ready" group="left_arm">
+      <joint name="left_shoulder_pitch_joint" value="-0.291996"/>
+      <joint name="left_shoulder_roll_joint" value="0.210695"/>
+      <joint name="left_shoulder_yaw_joint" value="0.015603"/>
+      <joint name="left_elbow_joint" value="0.987201"/>
+      <joint name="left_wrist_roll_joint" value="0.035929"/>
+      <joint name="left_wrist_pitch_joint" value="0.102363"/>
+      <joint name="left_wrist_yaw_joint" value="-0.014396"/>
+  </group_state>
+
+  <!-- LEFT ARM - Ready step 2-->
+  <group_state name="2_arm_ready" group="left_arm">
+      <joint name="left_shoulder_pitch_joint" value="-0.113958"/>
+      <joint name="left_shoulder_roll_joint" value="0.212720"/>
+      <joint name="left_shoulder_yaw_joint" value="1.321321"/>
+      <joint name="left_elbow_joint" value="-0.063684"/>
+      <joint name="left_wrist_roll_joint" value="0.035198"/>
+      <joint name="left_wrist_pitch_joint" value="0.097277"/>
+      <joint name="left_wrist_yaw_joint" value="-0.013300"/>
+  </group_state>
+
+
+  <!-- Left Inspire FTP: Home -->
+  <group_state name="hand_home" group="left_hand">
+      <joint name="left_little_1_joint" value="0.0"/>
+      <joint name="left_ring_1_joint" value="0.0"/>
+      <joint name="left_middle_1_joint" value="0.0"/>
+      <joint name="left_index_1_joint" value="0.0"/>
+      <joint name="left_thumb_2_joint" value="0.3142"/>
+      <joint name="left_thumb_1_joint" value="0.0"/>
+  </group_state>
+
+  <!-- Left Inspire FTP: Ratblock grip -->
+  <group_state name="grip_ratblock" group="left_hand">
+      <joint name="left_little_1_joint" value="0.0"/>
+      <joint name="left_ring_1_joint" value="0.0"/>
+      <joint name="left_middle_1_joint" value="0.5760"/>
+      <joint name="left_index_1_joint" value="0.5411"/>
+      <joint name="left_thumb_2_joint" value="0.5760"/>
+      <joint name="left_thumb_1_joint" value="1.1694"/>
+  </group_state>
+
+  <!-- Left Inspire FTP: Ratblock pre-grip -->
+  <group_state name="pre_grip_ratblock" group="left_hand">
+      <joint name="left_little_1_joint" value="0.0"/>
+      <joint name="left_ring_1_joint" value="0.0"/>
+      <joint name="left_middle_1_joint" value="0.2632"/>
+      <joint name="left_index_1_joint" value="0.2632"/>
+      <joint name="left_thumb_2_joint" value="0.5760"/>
+      <joint name="left_thumb_1_joint" value="1.1694"/>
+  </group_state>
+
+
+
+
+
+  <!--  RIGHT ARM - Ready step 1-->
+  <group_state name="1_arm_ready" group="right_arm">
+      <joint name="right_shoulder_pitch_joint" value="-0.105473"/>
+      <joint name="right_shoulder_roll_joint" value="-0.210898"/>
+      <joint name="right_shoulder_yaw_joint" value="-1.345145"/>
+      <joint name="right_elbow_joint" value="0.990628"/>
+      <joint name="right_wrist_roll_joint" value="-0.225867"/>
+      <joint name="right_wrist_pitch_joint" value="0.061873"/>
+      <joint name="right_wrist_yaw_joint" value="0.035458"/>
+  </group_state>
+
+  <!--  RIGHT ARM - Ready step 2-->
+  <group_state name="2_arm_ready" group="right_arm">
+      <joint name="right_shoulder_pitch_joint" value="-0.109368"/>
+      <joint name="right_shoulder_roll_joint" value="-0.210707"/>
+      <joint name="right_shoulder_yaw_joint" value="-1.327253"/>
+      <joint name="right_elbow_joint" value="-0.064715"/>
+      <joint name="right_wrist_roll_joint" value="-0.227005"/>
+      <joint name="right_wrist_pitch_joint" value="0.062464"/>
+      <joint name="right_wrist_yaw_joint" value="0.035527"/>
+  </group_state>
+
+
+
+
+
+  <!-- Right Inspire FTP: Home -->
+  <group_state name="hand_home" group="right_hand">
+      <joint name="right_little_1_joint" value="0.0"/>
+      <joint name="right_ring_1_joint" value="0.0"/>
+      <joint name="right_middle_1_joint" value="0.0"/>
+      <joint name="right_index_1_joint" value="0.0"/>
+      <joint name="right_thumb_2_joint" value="0.3142"/>
+      <joint name="right_thumb_1_joint" value="0.0"/>
+  </group_state>
+
+  <!-- Right Inspire FTP: Ratblock grip -->
+  <group_state name="grip_ratblock" group="right_hand">
+      <joint name="right_little_1_joint" value="0.0"/>
+      <joint name="right_ring_1_joint" value="0.0"/>
+      <joint name="right_middle_1_joint" value="0.6632"/>
+      <joint name="right_index_1_joint" value="0.6632"/>
+      <joint name="right_thumb_2_joint" value="0.5760"/>
+      <joint name="right_thumb_1_joint" value="1.1694"/>
+  </group_state>
+
+  <!-- Right Inspire FTP: Ratblock pre-grip -->
+  <group_state name="pre_grip_ratblock" group="right_hand">
+      <joint name="right_little_1_joint" value="0.0"/>
+      <joint name="right_ring_1_joint" value="0.0"/>
+      <joint name="right_middle_1_joint" value="0.4632"/>
+      <joint name="right_index_1_joint" value="0.4632"/>
+      <joint name="right_thumb_2_joint" value="0.5760"/>
+      <joint name="right_thumb_1_joint" value="1.1694"/>
+  </group_state>
 
 </robot>
