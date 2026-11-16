@@ -20,9 +20,6 @@ karis_pose_estimator:
     isaac_timeout_s: 25.0         # longer than the helper's register timeout
     max_register: 1               # registrations per frame after the first (0 = all)
     reregister_iou: 0.2           # drift check: register a part again if mesh/mask overlap drops below this
-    settle_reregister: true       # register a part again when it comes to rest after moving
-    settle_move_m: 0.02           # "moved" = more than this (or 15 deg) away from its last registration
-    settle_still_s: 0.5           # "at rest" = still for this long
     min_valid_depth_px: 50        # a part needs this many depth pixels in its mask
     min_depth_m: 0.1              # depth outside this range is ignored
     max_depth_m: 3.0

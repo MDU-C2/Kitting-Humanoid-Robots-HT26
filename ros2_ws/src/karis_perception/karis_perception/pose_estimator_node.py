@@ -15,8 +15,6 @@ Services:
 from __future__ import annotations
 
 import os
-import shutil
-import tempfile
 import time
 from pathlib import Path
 
@@ -97,9 +95,6 @@ class PoseEstimatorNode(Node):
         self.max_depth = float(p("max_depth_m", 3.0))
         self.redetect_every = int(p("redetect_every", 5))
         self.reregister_iou = float(p("reregister_iou", 0.2))
-        self.settle = bool(p("settle_reregister", True))
-        self.settle_move = float(p("settle_move_m", 0.02))
-        self.settle_still = float(p("settle_still_s", 0.5))
         self.image_size = int(p("image_size", 0))
         self.max_register = int(p("max_register", 1))
         self.backend = p("backend", "isaac")
@@ -154,10 +149,6 @@ class PoseEstimatorNode(Node):
             setattr(vision, k, v)
         tracker.REDETECT_EVERY = max(1, self.redetect_every)
         tracker.REREGISTER_IOU = self.reregister_iou
-        tracker.SETTLE_REREGISTER = self.settle
-        tracker.SETTLE_MOVE_M = self.settle_move
-        tracker.SETTLE_STILL_S = self.settle_still
-        self.tmp_dir = Path(tempfile.mkdtemp(prefix="karis_ros_"))
         self.get_logger().info(f"KARIS data folder: {self.karis_dir}")
         if self.backend != "isaac":
             raise ValueError(f"backend '{self.backend}' is not available: FoundationPose runs only in "
@@ -270,13 +261,16 @@ class PoseEstimatorNode(Node):
         self.pub_cam.publish(arr)
         if self.publish_tf:
             self._publish_tf(arr)
-        self._publish_markers(arr)
+        # markers and the overlay are drawn only while something subscribes to them
+        if self.pub_markers.get_subscription_count() > 0:
+            self._publish_markers(arr)
         if self.target_frame:
             base = self._transform_array(arr, self.target_frame)
             if base is not None:
                 self.pub_base.publish(base)
-        if self.publish_annotated or self.show:
-            self._annotate(bgr, tm, stamp, frame)
+        publish_annot = self.publish_annotated and self.pub_annot.get_subscription_count() > 0
+        if publish_annot or self.show:
+            self._annotate(bgr, tm, stamp, frame, publish_annot)
 
         self.n += 1
         self._report(tm)
@@ -312,7 +306,7 @@ class PoseEstimatorNode(Node):
             o.mode = trk["mode"]
             o.has_orientation = True
             o.pose = rc.matrix_to_pose(P)
-            o.box_pose = rc.matrix_to_pose(P @ np.linalg.inv(e["to_origin"]))
+            o.box_pose = rc.matrix_to_pose(P @ e["from_origin"])
             o.box_size = rc.vec3(e["bbox"][1] * 2)
             iou = trk.get("iou")
             o.fit_iou = float(iou) if iou is not None else -1.0
@@ -411,7 +405,7 @@ class PoseEstimatorNode(Node):
             out.objects.append(n)
         return out
 
-    def _annotate(self, bgr, tm, stamp, frame):
+    def _annotate(self, bgr, tm, stamp, frame, publish):
         T_base = self._lookup(self.target_frame, frame)[0] if self.target_frame else None
         vis = self.tracker.draw(bgr, {"frame": self.n, "t": time.perf_counter() - self.t0,
                                       "mode": tm["mode"], "ms": tm["frame_ms"],
@@ -420,7 +414,7 @@ class PoseEstimatorNode(Node):
         import cv2
         cv2.putText(vis, f"ROS {fps:4.1f} fps", (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                     (0, 255, 255), 2, cv2.LINE_AA)
-        if self.publish_annotated:
+        if publish:
             self.pub_annot.publish(rc.bgr_to_compressed(vis, stamp, frame, self.annotated_quality))
         if self.show:
             try:
@@ -518,7 +512,6 @@ class PoseEstimatorNode(Node):
             from karis_perception.isaac_backend import timing_summary
             print(timing_summary(self.isaac))
             self.isaac.shutdown()
-        shutil.rmtree(self.tmp_dir, ignore_errors=True)
         if self.show:
             import cv2
             cv2.destroyAllWindows()

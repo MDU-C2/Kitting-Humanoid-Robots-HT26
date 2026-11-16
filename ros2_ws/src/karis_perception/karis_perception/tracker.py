@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import time
+from collections import deque
 
 import cv2
 import numpy as np
@@ -24,6 +25,8 @@ LOST_AFTER = 3            # drop a track not seen in this many detections in a r
 MATCH_PX = 40             # max distance [px] between a track and a detection to match
 DRIFT_PX = 120            # unmatched detection this close to an unmatched track: same part, re-register
 MAX_REGISTER_PER_DETECT = None   # registrations per detection frame after the first (None = all)
+HISTORY_FRAMES = 10_000   # frames of timing kept for the summary and timing.csv (older are dropped)
+HISTORY_POSES = 30_000    # pose rows (one per part per frame) kept for the summary and poses.csv
 
 
 def project(K, p):
@@ -33,7 +36,7 @@ def project(K, p):
 def track_pixel(trk, ests, K):
     """Pixel of the part's bounding-box centre at its current pose."""
     e = ests[trk["cls_name"]]
-    c = (trk["pose"] @ np.linalg.inv(e["to_origin"]))[:3, 3]
+    c = (trk["pose"] @ e["from_origin"])[:3, 3]
     return project(K, c) if c[2] > 0 else np.array([-1e6, -1e6])
 
 
@@ -47,7 +50,7 @@ def draw_frame(rgb, tracks, slots, ests, K, fpu, info):
     for trk in tracks.values():
         e = ests[trk["cls_name"]]
         color = vision.class_color(trk["cls_id"])
-        center_pose = trk["pose"] @ np.linalg.inv(e["to_origin"])
+        center_pose = trk["pose"] @ e["from_origin"]
         vis = fpu.draw_posed_3d_box(K, img=vis, ob_in_cam=center_pose, bbox=e["bbox"])
         vis = fpu.draw_xyz_axis(vis, ob_in_cam=center_pose, scale=0.6 * e["extent"], K=K,
                                 thickness=2, transparency=0, is_input_rgb=True)
@@ -104,8 +107,12 @@ class PoseTracker:
             from karis_perception.isaac_backend import silhouette_check as check
         self.check = check
         self.max_register = max_register if max_register is not None else MAX_REGISTER_PER_DETECT
-        self.reg_times, self.track_times, self.det_times = [], [], []
-        self.pose_rows, self.time_rows = [], []
+        for e in ests.values():           # box centre frame <- CAD frame, used every frame
+            e.setdefault("from_origin", np.linalg.inv(e["to_origin"]))
+        # bounded: the node runs for hours
+        self.reg_times, self.det_times = deque(maxlen=HISTORY_FRAMES), deque(maxlen=HISTORY_FRAMES)
+        self.track_times = deque(maxlen=HISTORY_POSES)
+        self.pose_rows, self.time_rows = deque(maxlen=HISTORY_POSES), deque(maxlen=HISTORY_FRAMES)
         self.n_reregistered, self.n_dropped, self.n_new = 0, 0, 0
         self.reset()
 
@@ -299,7 +306,8 @@ class PoseTracker:
 
         rows = self.time_rows
         track_frames = [r["frame_ms"] for r in rows if r["mode"] == "track"]
-        print(f"\nTiming over {len(rows)} frames (ms, GPU-synchronised):")
+        last = "the last " if len(rows) == rows.maxlen else ""
+        print(f"\nTiming over {last}{len(rows)} frames (ms, GPU-synchronised):")
         print(f"  Detector per detection frame {stat(self.det_times)}")
         print(f"  Register per object          {stat(self.reg_times)}   "
               f"({len(self.reg_times)} registrations)")

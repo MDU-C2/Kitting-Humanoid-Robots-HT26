@@ -8,6 +8,7 @@ from __future__ import annotations
 import array
 import itertools
 import threading
+from collections import deque
 from pathlib import Path
 
 import cv2
@@ -53,7 +54,7 @@ class IsaacClient:
         self.service = service
         self.frame = None            # (color CompressedImage, depth CompressedImage, CameraInfo)
         self.sent = None             # stamp of the frame whose images the helper has
-        self.times = []
+        self.times = deque(maxlen=30_000)   # helper ms per call, for the summary
 
     def _spin(self):
         while rclpy.ok():
@@ -170,6 +171,7 @@ def build_isaac_estimators(classes, class_names, client, log):
         verts, faces = simplify_for_silhouette(mesh.vertices, mesh.faces)
         est = IsaacEstimator(client, cls_name, verts, faces, ests)
         ests[cls_name] = {"est": est, "to_origin": to_origin,
+                          "from_origin": np.linalg.inv(to_origin),
                           "bbox": np.stack([-extents / 2, extents / 2], axis=0),
                           "extent": float(extents.max())}
         log.info(f"  {cls_name}: {Path(cfg['mesh']).name} -> Isaac ROS FoundationPose "
@@ -270,7 +272,7 @@ class Draw:
 
 
 def timing_summary(client):
-    t = client.times
+    t = list(client.times)
     if not t:
         return ""
     return (f"Isaac helper per call: median {np.median(t):.1f} ms, max {np.max(t):.1f} ms "

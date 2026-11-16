@@ -4,6 +4,7 @@ The module-level settings are defaults; the pose estimator sets them from percep
 """
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 
 import cv2
@@ -53,18 +54,27 @@ def load_classes(path=None):
 
 # ------------------------------------------------------------ detection
 def clean_mask(mask: np.ndarray, k: int = 3) -> np.ndarray:
+    """Open + close, keep the largest blob and fill its holes. Works on the mask's bounding
+    box plus a k px margin of zeros, which gives the same result as the whole image."""
+    out = np.zeros_like(mask)
+    x, y, bw, bh = cv2.boundingRect(mask)
+    if bw == 0 or bh == 0:
+        return out
+    h, w = mask.shape[:2]
+    x0, y0, x1, y1 = max(0, x - k), max(0, y - k), min(w, x + bw + k), min(h, y + bh + k)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
-    m = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    m = cv2.morphologyEx(np.ascontiguousarray(mask[y0:y1, x0:x1]), cv2.MORPH_OPEN, kernel)
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, kernel)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
     if n <= 1:
-        return np.zeros_like(mask)
+        return out
     largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
     m = (labels == largest).astype(np.uint8) * 255
     contours, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     filled = np.zeros_like(m)
     cv2.drawContours(filled, contours, -1, 255, thickness=cv2.FILLED)
-    return filled
+    out[y0:y1, x0:x1] = filled
+    return out
 
 
 def cuda_sync():
@@ -149,5 +159,6 @@ def rot_to_quat_xyzw(R):
     return q / np.linalg.norm(q)
 
 
+@functools.lru_cache(maxsize=None)
 def class_color(cls_id):
     return tuple(int(x) for x in np.random.RandomState(cls_id).randint(60, 255, 3))
