@@ -3,7 +3,7 @@
 <package format="3">
   <name>karis_bringup</name>
   <version>0.1.0</version>
-  <description>KARIS launch files and configs: perception (perception container) and motion (the team's MoveIt container), all ROS 2 Humble.</description>
+  <description>KARIS launch files and configs: perception (perception container), ROS 2 Humble.</description>
   <maintainer email="kim.svedberg03@gmail.com">Kim Svedberg</maintainer>
   <license>MIT</license>
 

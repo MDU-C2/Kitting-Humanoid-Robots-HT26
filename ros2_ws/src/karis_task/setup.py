@@ -14,13 +14,11 @@ setup(
     zip_safe=True,
     maintainer="Kim Svedberg",
     maintainer_email="kim.svedberg03@gmail.com",
-    description="KARIS motion-side nodes",
+    description="KARIS motion-side pose listener",
     license="MIT",
     entry_points={
         "console_scripts": [
             "pose_listener = karis_task.pose_listener:main",
-            "scene_updater = karis_task.scene_updater:main",
-            "pick_server = karis_task.pick_server:main",
         ],
     },
 )

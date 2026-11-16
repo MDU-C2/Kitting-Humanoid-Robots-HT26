@@ -1,1 +1,1 @@
-"""KARIS task / motion side: vision -> motion planning glue (Humble)."""
+"""KARIS task / motion side: prints the poses the perception publishes (Humble)."""

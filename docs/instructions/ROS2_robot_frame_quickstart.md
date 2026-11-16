@@ -88,14 +88,14 @@ bash /workspace/src/karis_bringup/scripts/observe_g1_tf.sh          # cable: rea
 It prints `READ-ONLY G1 rt/lowstate on <interface>` (cable) and `Robot model running`.
 Nothing is commanded and the arms are not taken over.
 
-**With MoveIt instead** (for picking): run the team's stack, following its safety procedure,
+**With MoveIt instead**: run the team's stack, following its safety procedure,
 instead of `observe_g1_tf.sh` (never both: they publish the same TF):
 
 ```bash
 bash /workspace/scripts/run_g1.sh --check   # read-only DDS check
 bash /workspace/scripts/run_g1.sh           # robot model + move_group + supervised arm control
 # second shell in E (bash ros2_ws/scripts/start.sh, then source /workspace/karis_ros_env.sh):
-ros2 launch karis_bringup motion.launch.py  # scene_updater, pose_listener, pick_server (plan only)
+ros2 run karis_task pose_listener           # prints the poses in pelvis
 ```
 
 ### 4. C: Isaac helper (new WSL window)
@@ -137,9 +137,9 @@ shows x ≈ +0.3 … +0.6, a small y, and a negative z (the table is below the p
 | Output | Frame | Used by |
 |---|---|---|
 | `/karis/object_poses` | camera (`head_camera_color_optical_frame`) | debugging, recordings |
-| `/karis/object_poses_base` | `pelvis` | MoveIt (`scene_updater`, `pick_server`) |
+| `/karis/object_poses_base` | `pelvis` | motion planning |
 | TF `karis/<object_id>` | child of the camera frame | RViz, any TF lookup from `pelvis` |
-| `/karis/get_objects` | the frame asked for | `pick_server` (asks for `pelvis`) |
+| `/karis/get_objects` | the frame asked for | motion planning (asks for `pelvis`) |
 
 ### 7. Check the accuracy with a tape measure
 

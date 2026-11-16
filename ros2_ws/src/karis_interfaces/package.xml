@@ -3,7 +3,7 @@
 <package format="3">
   <name>karis_interfaces</name>
   <version>0.1.0</version>
-  <description>KARIS messages between vision and motion: object poses, the GetObjects service and the PickObject action. Also EstimatePose, the service of the Isaac ROS FoundationPose helper. Built in every KARIS container (Humble).</description>
+  <description>KARIS messages between vision and motion: object poses and the GetObjects service. Also EstimatePose, the service of the Isaac ROS FoundationPose helper. Built in every KARIS container (Humble).</description>
   <maintainer email="kim.svedberg03@gmail.com">Kim Svedberg</maintainer>
   <license>MIT</license>
 
@@ -12,7 +12,6 @@
 
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
-  <depend>action_msgs</depend>
   <depend>sensor_msgs</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
