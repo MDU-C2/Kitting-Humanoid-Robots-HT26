@@ -97,6 +97,7 @@ class PoseEstimatorNode(Node):
         self.reregister_iou = float(p("reregister_iou", 0.2))
         self.image_size = int(p("image_size", 0))
         self.max_register = int(p("max_register", 1))
+        self.parallel_classes = bool(p("parallel_classes", False))
         self.backend = p("backend", "isaac")
         self.isaac_service = p("isaac_service", "/karis/fp/estimate_pose")
         self.isaac_timeout = float(p("isaac_timeout_s", 25.0))
@@ -149,6 +150,7 @@ class PoseEstimatorNode(Node):
             setattr(vision, k, v)
         tracker.REDETECT_EVERY = max(1, self.redetect_every)
         tracker.REREGISTER_IOU = self.reregister_iou
+        tracker.PARALLEL_CLASSES = self.parallel_classes
         self.get_logger().info(f"KARIS data folder: {self.karis_dir}")
         if self.backend != "isaac":
             raise ValueError(f"backend '{self.backend}' is not available: FoundationPose runs only in "
@@ -172,7 +174,8 @@ class PoseEstimatorNode(Node):
         self.get_logger().info(
             f"Model {self.model.model_file} ({self.model.kind}), FoundationPose: {self.backend}, "
             f"meshes for: {sorted(self.ests)}; confidence {vision.CONFIDENCE}, "
-            f"detector every {tracker.REDETECT_EVERY} frames")
+            f"detector every {tracker.REDETECT_EVERY} frames, classes tracked "
+            f"{'in parallel' if tracker.PARALLEL_CLASSES else 'one after another'}")
 
     # ------------------------------------------------------------ inputs
     def _on_info(self, msg):

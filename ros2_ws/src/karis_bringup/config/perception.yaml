@@ -1,5 +1,5 @@
-# Pose estimator settings. Rebuild after changing; model, confidence, redetect_every and
-# image_size can also be set as launch arguments. Part classes: karis_perception/config/classes.yaml.
+# Pose estimator settings. Rebuild after changing; model, confidence, redetect_every, image_size
+# and parallel_classes can also be set as launch arguments. Part classes: karis_perception/config/classes.yaml.
 karis_pose_estimator:
   ros__parameters:
     # --- files
@@ -20,6 +20,8 @@ karis_pose_estimator:
     isaac_timeout_s: 25.0         # longer than the helper's register timeout
     max_register: 1               # registrations per frame after the first (0 = all)
     reregister_iou: 0.2           # drift check: register a part again if mesh/mask overlap drops below this
+    parallel_classes: false       # true = track parts of different classes at the same time (experimental:
+                                  # compare "Frame, tracking only" in the summary printed at Ctrl+C)
     min_valid_depth_px: 50        # a part needs this many depth pixels in its mask
     min_depth_m: 0.1              # depth outside this range is ignored
     max_depth_m: 3.0

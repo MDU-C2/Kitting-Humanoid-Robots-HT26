@@ -176,6 +176,10 @@ ros2 launch karis_bringup perception.launch.py model:=YOLO_26s.pt show:=true
 - `model:=` is any file in `$KARIS_DIR/models` (`.pt` YOLO, `.pth`
   RF-DETR); without it, the model used last.
 - **Detector every N frames:** 5 by default; for one run `redetect_every:=10`.
+- **Several part classes in view (experimental):** `parallel_classes:=true` tracks parts of
+  different classes at the same time instead of one after another. Compare the line
+  `Frame, tracking only` in the summary printed at Ctrl+C with and without it, and keep it
+  only if it is faster. Parts of the same class are still tracked one after another.
 - **Detector confidence:** 0.6 by default (`confidence` in
   `ros2_ws/src/karis_bringup/config/perception.yaml`). For one run: add `confidence:=0.4`
   (or any 0–1). Higher = fewer false detections but parts are found less easily. The start

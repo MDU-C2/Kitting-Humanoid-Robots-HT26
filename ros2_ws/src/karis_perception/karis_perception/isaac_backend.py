@@ -70,6 +70,8 @@ class IsaacClient:
         self.frame = (color, depth, info)
 
     def call(self, track_id, class_name, mode, mask=None):
+        """Thread-safe (tracker.PARALLEL_CLASSES calls it from one thread per class). Calls
+        that start together on a new frame each send the images; the helper keeps one copy."""
         color, depth, info = self.frame
         stamp = (color.header.stamp.sec, color.header.stamp.nanosec)
         for attempt in (0, 1):

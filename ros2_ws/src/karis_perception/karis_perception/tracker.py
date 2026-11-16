@@ -7,6 +7,7 @@ Classes without a mesh (tray slots) only get a centre point.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import csv
 import time
 from collections import deque
@@ -25,7 +26,9 @@ LOST_AFTER = 3            # drop a track not seen in this many detections in a r
 MATCH_PX = 40             # max distance [px] between a track and a detection to match
 DRIFT_PX = 120            # unmatched detection this close to an unmatched track: same part, re-register
 MAX_REGISTER_PER_DETECT = None   # registrations per detection frame after the first (None = all)
-HISTORY_FRAMES = 10_000   # frames of timing kept for the summary and timing.csv (older are dropped)
+PARALLEL_CLASSES = False  # track parts of different classes at the same time (one thread per class);
+                          # parts of one class always go one after another (they share an estimator)
+HISTORY_FRAMES = 10_000  # frames of timing kept for the summary and timing.csv (older are dropped)
 HISTORY_POSES = 30_000    # pose rows (one per part per frame) kept for the summary and poses.csv
 
 
@@ -114,6 +117,7 @@ class PoseTracker:
         self.track_times = deque(maxlen=HISTORY_POSES)
         self.pose_rows, self.time_rows = deque(maxlen=HISTORY_POSES), deque(maxlen=HISTORY_FRAMES)
         self.n_reregistered, self.n_dropped, self.n_new = 0, 0, 0
+        self._pool = None         # threads for PARALLEL_CLASSES, made when first needed
         self.reset()
 
     def reset(self):
@@ -160,6 +164,40 @@ class PoseTracker:
         self.tracks[tid] = trk
         return ms
 
+    def _track(self, trks, rgb, depth):
+        """Track these parts one after another from their previous pose -> ms per part."""
+        times = []
+        for trk in trks:
+            est = self.ests[trk["cls_name"]]["est"]
+            est.pose_last = trk["state"]
+            vision.cuda_sync()
+            t0 = time.perf_counter()
+            pose = est.track_one(rgb=rgb, depth=depth, K=self.K, iteration=TRACK_ITERATIONS)
+            vision.cuda_sync()
+            times.append((time.perf_counter() - t0) * 1000)
+            trk["pose"] = np.asarray(pose, np.float64).reshape(4, 4)
+            trk["state"] = est.pose_last.clone()
+            trk["mode"] = "track"
+        return times
+
+    def _track_all(self, rgb, depth):
+        """Track every part -> (ms per part, ms for all of them together)."""
+        by_class = {}
+        for trk in self.tracks.values():
+            by_class.setdefault(trk["cls_name"], []).append(trk)
+        if not PARALLEL_CLASSES or len(by_class) < 2:
+            times = self._track(list(self.tracks.values()), rgb, depth)
+            return times, sum(times)
+        # one thread per class; the estimator (and its Isaac node) of a class is used by one thread
+        if self._pool is None:
+            self._pool = concurrent.futures.ThreadPoolExecutor(
+                max_workers=max(2, len(self.ests)), thread_name_prefix="karis_track")
+        t0 = time.perf_counter()
+        jobs = [self._pool.submit(self._track, trks, rgb, depth) for trks in by_class.values()]
+        concurrent.futures.wait(jobs)
+        wall = (time.perf_counter() - t0) * 1000
+        return [ms for job in jobs for ms in job.result()], wall
+
     def step(self, bgr, depth, frame_no, t_rec, force_detect=False):
         """Process one frame. Returns the timing dict (with 'mode')."""
         K, ests = self.K, self.ests
@@ -168,20 +206,9 @@ class PoseTracker:
               "register_ms": 0.0, "n_track": 0, "track_ms": 0.0}
 
         # 1. track existing parts from their previous pose
-        for trk in self.tracks.values():
-            est = ests[trk["cls_name"]]["est"]
-            est.pose_last = trk["state"]
-            vision.cuda_sync()
-            t0 = time.perf_counter()
-            pose = est.track_one(rgb=rgb, depth=depth, K=K, iteration=TRACK_ITERATIONS)
-            vision.cuda_sync()
-            ms = (time.perf_counter() - t0) * 1000
-            self.track_times.append(ms)
-            tm["n_track"] += 1
-            tm["track_ms"] += ms
-            trk["pose"] = np.asarray(pose, np.float64).reshape(4, 4)
-            trk["state"] = est.pose_last.clone()
-            trk["mode"] = "track"
+        times, tm["track_ms"] = self._track_all(rgb, depth)
+        self.track_times.extend(times)
+        tm["n_track"] = len(times)
 
         # 2. detection frame: find new parts, check / repair existing tracks
         detect_now = force_detect or self.pending or self.k % REDETECT_EVERY == 0
@@ -311,7 +338,8 @@ class PoseTracker:
         print(f"  Detector per detection frame {stat(self.det_times)}")
         print(f"  Register per object          {stat(self.reg_times)}   "
               f"({len(self.reg_times)} registrations)")
-        print(f"  Track per object             {stat(self.track_times)}")
+        print(f"  Track per object             {stat(self.track_times)}"
+              + ("   (classes in parallel: these overlap)" if PARALLEL_CLASSES else ""))
         print(f"  Frame, tracking only         {stat(track_frames)}")
         print(f"  Frame, all                   {stat([r['frame_ms'] for r in rows])}")
         if track_frames:

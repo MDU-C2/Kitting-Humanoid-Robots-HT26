@@ -24,6 +24,8 @@ def _nodes(context):
             overrides[name] = get(name)
     if get("show"):
         overrides["show"] = BOOL.get(get("show").lower(), False)
+    if get("parallel_classes"):
+        overrides["parallel_classes"] = BOOL.get(get("parallel_classes").lower(), False)
     if get("confidence"):
         overrides["confidence"] = float(get("confidence"))
     if get("show_scale"):
@@ -66,6 +68,9 @@ def generate_launch_description():
                               description="run the detector every N processed frames ('' = perception.yaml)"),
         DeclareLaunchArgument("image_size", default_value="",
                               description="YOLO input size in px ('' = perception.yaml; 0 = the model's training size)"),
+        DeclareLaunchArgument("parallel_classes", default_value="",
+                              description="true = track parts of different classes at the same time "
+                                          "('' = perception.yaml)"),
         DeclareLaunchArgument("karis_dir", default_value="", description="'' = $KARIS_DIR"),
         DeclareLaunchArgument("player", default_value="",
                               description=".bag file or frame folder to play instead of the robot camera"),
