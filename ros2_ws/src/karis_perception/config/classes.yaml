@@ -5,3 +5,4 @@ classes:
   Rund mutter:         {mesh: 11432713.stl, scale: 0.001}
   Ihalig bojd kvadrat: {mesh: 15129400.stl, scale: 0.001}
   Ratblock Chamfer:    {mesh: 4850193.stl,  scale: 0.001}
+  bricka:              {mesh: cutoutboard.stl, scale: 1.0}
