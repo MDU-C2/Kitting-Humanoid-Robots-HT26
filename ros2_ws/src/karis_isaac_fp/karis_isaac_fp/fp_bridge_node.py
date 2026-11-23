@@ -5,8 +5,13 @@ Each request is published to /karis_fp/<class>/pose_estimation/* (register) or
 outputs with that stamp are returned. Tracking state is kept per track_id, and frames are
 cached by stamp so the client sends the images only once per frame. Isaac's poses refer to
 the centred mesh and are converted to the CAD frame with center_m from meshes.yaml.
+
+With shared_register, one register node (/karis_fp/shared) serves all classes: before a
+registration the bridge sets its mesh_file_path to the class's mesh (when it differs) and
+waits mesh_switch_wait_s, because the node applies the change asynchronously.
 """
 import array
+import contextlib
 import copy
 import threading
 import time
@@ -20,6 +25,8 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rcl_interfaces.msg import Parameter as ParameterMsg, ParameterType, ParameterValue
+from rcl_interfaces.srv import SetParameters
 from sensor_msgs.msg import CameraInfo, Image
 from vision_msgs.msg import Detection3DArray
 from isaac_ros_tensor_list_interfaces.msg import TensorList
@@ -71,11 +78,21 @@ class Waiter:
             self.event.set()
 
 
+def est_publishers(node, ns):
+    pub = lambda t, n: node.create_publisher(t, f"{ns}/{n}", PUB_QOS)   # noqa: E731
+    return {"image": pub(Image, "pose_estimation/image"),
+            "depth": pub(Image, "pose_estimation/depth_image"),
+            "info": pub(CameraInfo, "pose_estimation/camera_info"),
+            "mask": pub(Image, "pose_estimation/segmentation")}
+
+
 class ClassPipe:
     """Isaac ROS FoundationPose topics of one part class."""
 
-    def __init__(self, node, name, slug, center, cb):
-        self.name, self.slug = name, slug
+    def __init__(self, node, name, slug, center, cb, obj=None, shared_est_pub=None):
+        """shared_est_pub: register publishers of the shared register node (its outputs are
+        routed to this pipe by the bridge), or None for this class's own register node."""
+        self.name, self.slug, self.obj = name, slug, obj
         self.center = np.asarray(center, dtype=np.float64)   # mesh centre in the CAD frame
         self.lock = threading.Lock()          # one request at a time per class
         self.waiter = None
@@ -85,15 +102,12 @@ class ClassPipe:
         self.unmatched = 0
         ns = f"/karis_fp/{slug}"
         pub = lambda t, n: node.create_publisher(t, f"{ns}/{n}", PUB_QOS)   # noqa: E731
-        self.est_pub = {"image": pub(Image, "pose_estimation/image"),
-                        "depth": pub(Image, "pose_estimation/depth_image"),
-                        "info": pub(CameraInfo, "pose_estimation/camera_info"),
-                        "mask": pub(Image, "pose_estimation/segmentation")}
+        self.est_pub = shared_est_pub or est_publishers(node, ns)
         self.trk_pub = {"image": pub(Image, "tracking/image"),
                         "depth": pub(Image, "tracking/depth_image"),
                         "info": pub(CameraInfo, "tracking/camera_info"),
                         "pose": pub(TensorList, "tracking/pose_input")}
-        for kind in ("pose_estimation", "tracking"):
+        for kind in ("tracking",) if shared_est_pub else ("pose_estimation", "tracking"):
             node.create_subscription(Detection3DArray, f"{ns}/{kind}/output",
                                      lambda m: self._on(det=m), SUB_QOS, callback_group=cb)
             node.create_subscription(TensorList, f"{ns}/{kind}/pose_matrix_output",
@@ -143,23 +157,46 @@ class FpBridge(Node):
         self.reg_timeout = float(p("register_timeout_s", 10.0))
         self.trk_timeout = float(p("track_timeout_s", 2.0))
         self.cache_n = int(p("cache_frames", 4))
+        self.shared = bool(p("shared_register", False))
+        self.switch_wait = float(p("mesh_switch_wait_s", 0.5))
+        max_image = p("max_image", "")
+        self.max_wh = tuple(int(v) for v in max_image.lower().split("x")) if max_image else None
         with open(meshes_yaml) as f:
             meshes = yaml.safe_load(f)["classes"]
         cb = ReentrantCallbackGroup()
         self.pipes = {}
+        shared_pub = None
+        if self.shared:
+            ns = "/karis_fp/shared"
+            shared_pub = est_publishers(self, ns)
+            self.reg_lock = threading.Lock()   # one registration at a time on the shared node
+            self.reg_owner = None              # pipe whose registration is running
+            self.reg_mesh = None               # mesh the shared node has (None = unknown)
+            self.param_cli = self.create_client(SetParameters, f"{ns}/foundationpose/set_parameters",
+                                                callback_group=cb)
+            route = lambda **kw: self.reg_owner and self.reg_owner._on(**kw)   # noqa: E731
+            self.create_subscription(Detection3DArray, f"{ns}/pose_estimation/output",
+                                     lambda m: route(det=m), SUB_QOS, callback_group=cb)
+            self.create_subscription(TensorList, f"{ns}/pose_estimation/pose_matrix_output",
+                                     lambda m: route(mat=m), SUB_QOS, callback_group=cb)
         for name, m in meshes.items():
             if only and name not in only and m["slug"] not in only:
                 continue
             if "center_m" not in m:
                 raise RuntimeError(f"{meshes_yaml} is from an older make_isaac_meshes: run it again")
-            self.pipes[name] = ClassPipe(self, name, m["slug"], m["center_m"], cb)
+            self.pipes[name] = ClassPipe(self, name, m["slug"], m["center_m"], cb,
+                                         obj=m.get("obj"), shared_est_pub=shared_pub)
+            if self.shared and self.reg_mesh is None:
+                self.reg_mesh = m.get("obj")   # the launch file starts the node with the first class
         self.states = OrderedDict()            # track_id -> last pose TensorList
         self.max_states = 500
         self.frames = OrderedDict()            # frame stamp ns -> (rgb Image, depth Image)
         self.frames_lock = threading.Lock()
         self.create_service(EstimatePose, "/karis/fp/estimate_pose", self._on_estimate_pose, callback_group=cb)
         self.get_logger().info(f"Isaac ROS FoundationPose bridge for {sorted(self.pipes)} on "
-                               f"/karis/fp/estimate_pose")
+                               f"/karis/fp/estimate_pose; register node "
+                               f"{'shared' if self.shared else 'per class'}"
+                               + (f"; images up to {max_image}" if self.max_wh else ""))
 
     # ------------------------------------------------------------ frames
     def _frame(self, req):
@@ -223,6 +260,11 @@ class FpBridge(Node):
             res.message = "frame not cached"
             return res
         rgb, dep = frame
+        if self.max_wh and (rgb.width > self.max_wh[0] or rgb.height > self.max_wh[1]):
+            res.message = (f"image {rgb.width}x{rgb.height} is larger than max_image "
+                           f"{self.max_wh[0]}x{self.max_wh[1]} of the Isaac helper: restart it "
+                           "with a larger max_image")
+            return res
         if req.mode == "track" and req.track_id not in self.states:
             res.message = "no tracking state for this track_id: register first"
             return res
@@ -230,7 +272,14 @@ class FpBridge(Node):
             res.message = f"unknown mode '{req.mode}'"
             return res
 
-        with pipe.lock:
+        reg_shared = self.shared and req.mode == "register"
+        with pipe.lock, (self.reg_lock if reg_shared else contextlib.nullcontext()):
+            if reg_shared:
+                err = self._switch_mesh(pipe)
+                if err:
+                    res.message = err
+                    return res
+                self.reg_owner = pipe
             pipe.seq = (pipe.seq + 1) % STAMP_SEQ_N
             ns = stamp_ns(req.color.header.stamp) + pipe.seq * STAMP_STEP_NS
             st = ns_to_stamp(ns, req.color.header.stamp)
@@ -260,6 +309,8 @@ class FpBridge(Node):
                 timeout = self.trk_timeout
             ok = w.event.wait(timeout)
             pipe.waiter = None
+            if reg_shared:
+                self.reg_owner = None
 
         if not ok:
             res.message = f"timeout after {timeout:.1f} s ({req.mode}). {pipe.diagnose(req.mode)}"
@@ -283,6 +334,33 @@ class FpBridge(Node):
         res.success, res.message = True, req.mode
         res.processing_ms = float((time.perf_counter() - t0) * 1000)
         return res
+
+    def _switch_mesh(self, pipe):
+        """Give the shared register node this class's mesh. Returns an error text or None."""
+        if pipe.obj == self.reg_mesh:
+            return None
+        t0 = time.perf_counter()
+        if not self.param_cli.wait_for_service(timeout_sec=10.0):   # discovery can be slow at start
+            return "the shared register node's parameter service is not available"
+        req = SetParameters.Request()
+        req.parameters = [ParameterMsg(name="mesh_file_path", value=ParameterValue(
+            type=ParameterType.PARAMETER_STRING, string_value=pipe.obj))]
+        fut = self.param_cli.call_async(req)
+        done = threading.Event()
+        fut.add_done_callback(lambda f: done.set())
+        if not done.wait(5.0) or fut.result() is None:
+            self.reg_mesh = None
+            return "no answer when switching the shared register node's mesh"
+        r = fut.result().results[0]
+        if not r.successful:
+            self.reg_mesh = None
+            return f"the shared register node refused mesh {pipe.obj}: {r.reason}"
+        t_set = time.perf_counter()
+        time.sleep(self.switch_wait)       # the node applies the change from /parameter_events
+        self.reg_mesh = pipe.obj
+        self.get_logger().info(f"shared register node: mesh -> {pipe.name} (set_parameters "
+                               f"{(t_set - t0) * 1000:.0f} ms + wait {self.switch_wait * 1000:.0f} ms)")
+        return None
 
     def _mask(self, req, rgb, st):
         if not len(req.mask.data):

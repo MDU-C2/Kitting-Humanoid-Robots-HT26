@@ -80,7 +80,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     if [ "${WITH_RFDETR}" = "1" ]; then \
         python3 -m venv /opt/rfdetr-venv \
         && env -u PIP_CONSTRAINT /opt/rfdetr-venv/bin/pip install --upgrade pip \
-        && env -u PIP_CONSTRAINT /opt/rfdetr-venv/bin/pip install "rfdetr>=1.9" ; \
+        && env -u PIP_CONSTRAINT /opt/rfdetr-venv/bin/pip install "rfdetr>=1.9" opencv-python-headless ; \
     fi
 ENV KARIS_RFDETR_PYTHON=/opt/rfdetr-venv/bin/python
 

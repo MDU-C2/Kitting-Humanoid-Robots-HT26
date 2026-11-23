@@ -32,5 +32,13 @@ if [ ! -s "$M/score_trt_engine.plan" ]; then
         --maxShapes=input1:252x$SHAPE,input2:252x$SHAPE > "$M/score_trtexec.log" 2>&1 \
         || { echo "trtexec failed, see $M/score_trtexec.log"; exit 1; }
 fi
+if [ ! -s "$M/refine_trt_engine_batch1.plan" ]; then
+    # tracking refines one pose per call: a batch-1 engine needs ~0.4 GB less GPU memory
+    echo "Building the batch-1 refine TensorRT engine for tracking (a few minutes)..."
+    $TRTEXEC --onnx="$M/refine_model.onnx" --saveEngine="$M/refine_trt_engine_batch1.plan" --fp16 --skipInference \
+        --minShapes=input1:1x$SHAPE,input2:1x$SHAPE --optShapes=input1:1x$SHAPE,input2:1x$SHAPE \
+        --maxShapes=input1:1x$SHAPE,input2:1x$SHAPE > "$M/refine_batch1_trtexec.log" 2>&1 \
+        || { echo "trtexec failed, see $M/refine_batch1_trtexec.log"; exit 1; }
+fi
 nvidia-smi --query-gpu=name,driver_version --format=csv,noheader > "$M/engines_built_for.txt" 2>/dev/null || true
 echo "Models ready in $M: $(ls "$M" | tr '\n' ' ')"
