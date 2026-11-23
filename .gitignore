@@ -24,6 +24,7 @@ ros2_ws/log_perception/
 ros2_ws/log_isaac/
 docker/isaac_fp/isaac_ros_common/
 docker/isaac_fp/models/
+docker/isaac_fp/models_trt10/
 docker/.env
 
 # Python

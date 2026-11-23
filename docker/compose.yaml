@@ -56,7 +56,9 @@ services:
 
   isaac_fp:
     <<: *ros
-    image: karis/isaac_fp:3.2            # built by docker/isaac_fp/build.sh
+    # built by docker/isaac_fp/build.sh; RTX 50xx (Blackwell): ISAAC_IMAGE=karis/isaac_fp:3.2-trt10.13
+    # in docker/.env (docs/instructions/Isaac_TensorRT10_Blackwell.md)
+    image: ${ISAAC_IMAGE:-karis/isaac_fp:3.2}
     profiles: [isaac]
     container_name: karis_isaac_fp
     volumes:

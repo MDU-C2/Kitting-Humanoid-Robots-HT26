@@ -1,0 +1,24 @@
+# Isaac helper image with TensorRT 10.13 instead of Isaac ROS 3.2's TensorRT 10.3, which cannot
+# build engines for Blackwell GPUs (RTX 50xx: "Unsupported SM: 0xc00"). Only the TensorRT
+# runtime libraries and trtexec are upgraded; the -dev packages are removed (nothing in the
+# image compiles against TensorRT). CUDA stays 12.6 (the +cuda12.9 build runs on CUDA 12.x).
+#
+#     docker build --network host -f docker/isaac_fp/Dockerfile.trt10 -t karis/isaac_fp:3.2-trt10.13 docker/isaac_fp
+#
+# Engines built by 10.3 do not load in 10.13: run /opt/karis/prepare_models.sh again (own folder).
+FROM karis/isaac_fp:3.2
+
+ARG TRT_VERSION=10.13.3.9-1+cuda12.9
+# only NVIDIA's CUDA repo (the Ubuntu mirrors are not needed and can be slow)
+RUN set -e; L=/etc/apt/sources.list.d/cuda-ubuntu2204-x86_64.list; \
+    APT="-o Dir::Etc::sourcelist=$L -o Dir::Etc::sourceparts=-"; \
+    apt-get update $APT; \
+    DEV=$(dpkg-query -W -f '${Package}\n' | grep -E '^(libnvinfer.*-dev|libnvonnxparsers-dev|tensorrt-dev)$' || true); \
+    apt-get install -y --no-install-recommends --allow-downgrades $APT \
+        $(for p in libnvinfer10 libnvinfer-plugin10 libnvonnxparsers10 libnvinfer-dispatch10 \
+                   libnvinfer-lean10 libnvinfer-vc-plugin10 libnvinfer-bin; do echo "$p=$TRT_VERSION"; done) \
+        $(for p in $DEV; do echo "$p-"; done); \
+    apt-mark hold libnvinfer10 libnvinfer-plugin10 libnvonnxparsers10 libnvinfer-bin; \
+    rm -rf /var/lib/apt/lists/*; \
+    /usr/src/tensorrt/bin/trtexec --help >/dev/null 2>&1 || ls /usr/src/tensorrt/bin; \
+    dpkg -l libnvinfer10 | tail -1
