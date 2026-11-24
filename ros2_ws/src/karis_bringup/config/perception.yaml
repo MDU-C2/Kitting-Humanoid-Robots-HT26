@@ -12,7 +12,7 @@ karis_pose_estimator:
     iou: 0.6                      # overlap above which two detections count as one
     image_size: 0                 # YOLO input size in px; 0 = the size the model was trained at
     device: 0                     # GPU index
-    min_mask_area_px: 300         # smaller masks are ignored
+    min_mask_area_px: 100         # smaller masks are ignored
     redetect_every: 5             # detector every N processed frames (and when a part is lost)
     # --- pose (FoundationPose in the Isaac helper)
     backend: isaac                # the only option

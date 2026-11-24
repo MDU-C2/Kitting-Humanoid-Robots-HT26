@@ -8,6 +8,7 @@ Publishes:
     /tf                               <camera frame> -> karis/<object_id>
     /karis/markers                    MarkerArray
     /karis/viz/annotated/compressed   CompressedImage
+    /karis/viz/masks/compressed       CompressedImage: the detector's masks (detection frames only)
 Services:
     /karis/get_objects   GetObjects
     /karis/reset, /karis/detect_now, /karis/reregister   std_srvs/Trigger
@@ -127,6 +128,7 @@ class PoseEstimatorNode(Node):
         self.pub_markers = self.create_publisher(MarkerArray, "/karis/markers", POSE_QOS)
         self.pub_annot = self.create_publisher(CompressedImage, "/karis/viz/annotated/compressed",
                                                IMAGE_QOS)
+        self.pub_masks = self.create_publisher(CompressedImage, "/karis/viz/masks/compressed", IMAGE_QOS)
         self.tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.tf_pub = TransformBroadcaster(self)
@@ -274,6 +276,10 @@ class PoseEstimatorNode(Node):
         publish_annot = self.publish_annotated and self.pub_annot.get_subscription_count() > 0
         if publish_annot or self.show:
             self._annotate(bgr, tm, stamp, frame, publish_annot)
+        if tm["mode"] != "track" and self.pub_masks.get_subscription_count() > 0:
+            note = f" (detector every {self.trk.REDETECT_EVERY} frames, {tm['det_ms']:.0f} ms)"
+            vis = self.vision.draw_masks(bgr, self.tracker.last_dets, note)
+            self.pub_masks.publish(rc.bgr_to_compressed(vis, stamp, frame, self.annotated_quality))
 
         self.n += 1
         self._report(tm)

@@ -56,9 +56,10 @@ services:
 
   isaac_fp:
     <<: *ros
-    # built by docker/isaac_fp/build.sh; RTX 50xx (Blackwell): ISAAC_IMAGE=karis/isaac_fp:3.2-trt10.13
-    # in docker/.env (docs/instructions/Isaac_TensorRT10_Blackwell.md)
-    image: ${ISAAC_IMAGE:-karis/isaac_fp:3.2}
+    # docker/isaac_fp/build.sh, then Dockerfile.trt10 (TensorRT 10.13, needed for RTX 50xx):
+    # docs/instructions/Isaac_TensorRT10_Blackwell.md. Old TensorRT 10.3 image:
+    # ISAAC_IMAGE=karis/isaac_fp:3.2 in docker/.env (and its own engines in /models).
+    image: ${ISAAC_IMAGE:-karis/isaac_fp:3.2-trt10.13}
     profiles: [isaac]
     container_name: karis_isaac_fp
     volumes:

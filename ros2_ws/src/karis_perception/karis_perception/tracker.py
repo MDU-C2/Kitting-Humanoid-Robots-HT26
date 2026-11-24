@@ -123,6 +123,7 @@ class PoseTracker:
     def reset(self):
         """Forget all parts; the next frame detects and registers from scratch."""
         self.tracks, self.slots, self.counters = {}, [], {}
+        self.last_dets = []       # detector output of the last detection frame (masks view)
         self.k = 0
         self.pending = False      # registrations left for the next frame
 
@@ -219,6 +220,7 @@ class PoseTracker:
             dets = vision.detect(self.model, bgr, depth=depth)
             vision.cuda_sync()
             tm["det_ms"] = (time.perf_counter() - t0) * 1000
+            self.last_dets = dets
             self.det_times.append(tm["det_ms"])
 
             self.slots = []

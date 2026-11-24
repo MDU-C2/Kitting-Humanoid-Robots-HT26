@@ -1,6 +1,6 @@
 """Pose estimator, camera mount TF and optional camera player (perception container).
 
-    ros2 launch karis_bringup perception.launch.py model:=best8s.pt [player:=<bag or folder>]
+    ros2 launch karis_bringup perception.launch.py model:=best8s.pt [player:=<bag or folder>] [web_port:=8081]
 
 The static TF d435_link -> camera_frame is the nominal colour imager pose; adjust it with
 camera_x/y/z/yaw/pitch/roll (m, rad).
@@ -44,6 +44,10 @@ def _nodes(context):
                        "--yaw", get("camera_yaw"), "--pitch", get("camera_pitch"),
                        "--roll", get("camera_roll"),
                        "--frame-id", "d435_link", "--child-frame-id", get("camera_frame")]))
+    if get("web_port"):
+        actions.append(Node(package="karis_perception", executable="web_view",
+                            name="karis_web_view", output="screen",
+                            parameters=[{"port": int(get("web_port"))}]))
     if get("player"):
         actions.append(Node(package="karis_perception", executable="camera_player",
                             name="karis_camera_player", output="screen",
@@ -72,6 +76,8 @@ def generate_launch_description():
                               description="true = track parts of different classes at the same time "
                                           "('' = perception.yaml)"),
         DeclareLaunchArgument("karis_dir", default_value="", description="'' = $KARIS_DIR"),
+        DeclareLaunchArgument("web_port", default_value="",
+                              description="e.g. 8081: live view in a browser at http://<computer>:8081/ ('' = off)"),
         DeclareLaunchArgument("player", default_value="",
                               description=".bag file or frame folder to play instead of the robot camera"),
         DeclareLaunchArgument("player_rate", default_value="0.0", description="Hz, 0 = recording speed"),

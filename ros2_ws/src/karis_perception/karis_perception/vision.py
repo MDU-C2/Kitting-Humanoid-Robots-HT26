@@ -159,6 +159,28 @@ def rot_to_quat_xyzw(R):
     return q / np.linalg.norm(q)
 
 
+def draw_masks(bgr, dets, note=""):
+    """The detector's masks only: the image darkened, each mask filled in its class colour with
+    an outline and 'class conf'. dets from detect(); BGR in, BGR out."""
+    vis = (bgr.astype(np.float32) * 0.35).astype(np.uint8)
+    for d in dets:
+        m = d["mask"]
+        if m is None or not m.any():
+            continue
+        col = np.array(class_color(d["cls_id"]), np.float32)
+        vis[m] = (vis[m].astype(np.float32) * 0.35 + col * 0.65).astype(np.uint8)
+        cnts, _ = cv2.findContours(m.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(vis, cnts, -1, tuple(int(c) for c in col), 1, cv2.LINE_AA)
+        ys, xs = np.nonzero(m)
+        x, y = int(xs.min()), max(12, int(ys.min()) - 4)
+        label = f"{d['cls_name']} {d['conf']:.2f}"
+        cv2.putText(vis, label, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(vis, label, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(vis, f"{len(dets)} masks{note}", (10, vis.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                0.5, (255, 255, 255), 1, cv2.LINE_AA)
+    return vis
+
+
 @functools.lru_cache(maxsize=None)
 def class_color(cls_id):
     return tuple(int(x) for x in np.random.RandomState(cls_id).randint(60, 255, 3))
