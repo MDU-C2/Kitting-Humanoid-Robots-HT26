@@ -3,8 +3,8 @@
 #   perception container  -> karis_interfaces karis_perception karis_bringup   (build_perception/, install_perception/)
 #   Isaac container       -> karis_interfaces karis_isaac_fp                   (build_isaac/, install_isaac/)
 #   MoveIt container      -> the KARIS pose listener: karis_interfaces karis_task karis_bringup
-#     (the team's container, ros2_ws/scripts/start.sh; same build/ install/ as its own
-#      install.sh, which builds g1_description + g1_moveit_config; --symlink-install like it)
+#     (the motion team's container; it and its MoveIt stack live on their branch
+#      feature/g1-xr-clean-deployment; same build/ install/ as theirs, --symlink-install like it)
 # Run inside the container:  bash <repo>/ros2_ws/build.sh   (extra args go to colcon)
 set -e
 WS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

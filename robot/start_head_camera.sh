@@ -13,7 +13,7 @@
 #   --env NAME        conda env with pyrealsense2 + opencv                              [CONDA_ENV=NAME]
 #   --tf              also publish TF pelvis -> torso_link -> d435_link from the real waist  [ROBOT_TF=1]
 #                     joints (g1_tf_ros2.py, read only). NOT while the motion laptop runs its
-#                     robot model (run_g1.sh / observe_g1_tf.sh): TF would have two sources.
+#                     robot model (run_g1.sh): TF would have two sources.
 #   --tf-rate HZ      TF rate (default 50)                                               [TF_RATE=HZ]
 #   --sdk-python PATH a Python with unitree_sdk2py (default: found automatically)       [SDK_PY=PATH]
 # Everything after them (e.g. --ros-args -p publish_rate:=10.0) goes to g1_camera_ros2.py.

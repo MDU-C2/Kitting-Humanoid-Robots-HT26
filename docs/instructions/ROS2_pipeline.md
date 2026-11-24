@@ -69,9 +69,9 @@ Tray slots (classes without a mesh) have `has_orientation: false`; only their po
 | `ros2_ws/src/karis_perception` | perception | `pose_estimator`, `camera_player`, `bag_reindex`, `make_isaac_meshes` |
 | `ros2_ws/src/karis_isaac_fp` | isaac_fp | `isaac_fp.launch.py` (Isaac ROS FoundationPose nodes), `fp_bridge` |
 | `ros2_ws/src/karis_task` | MoveIt | `pose_listener` (prints the poses the perception publishes) |
-| `ros2_ws/src/karis_bringup` | perception, MoveIt | launch file (`perception.launch.py` incl. the camera mount TF), `config/perception.yaml`, `scripts/observe_g1_tf.sh` (read-only robot model for perception tests) |
-| `ros2_ws/src/g1_description`, `g1_moveit_config`, `g1_xr_bridge` | MoveIt | the team's MoveIt stack: URDF, MoveIt config, XR arm controller, read-only joint-state observer |
-| `ros2_ws/scripts/`, `ros2_ws/deployment/` | | the team's MoveIt container: `install.sh`, `start.sh`, `run_g1.sh` |
+| `ros2_ws/src/karis_bringup` | perception, MoveIt | launch file (`perception.launch.py` incl. the camera mount TF), `config/perception.yaml` |
+| `robot/` | the G1 | `start_head_camera.sh` (camera, and with `--tf` the robot model TF `pelvis → d435_link` from the real waist joints), `g1_camera_ros2.py`, `g1_tf_ros2.py`, `g1_waist_reader.py` |
+| (not here) `g1_description`, `g1_moveit_config`, `g1_xr_bridge`, `install.sh`, `start.sh`, `run_g1.sh` | MoveIt | the motion team's MoveIt stack and container: on their branch `feature/g1-xr-clean-deployment` |
 | `ros2_ws/karis_ros_env.sh`, `ros2_ws/build.sh` | every container | environment and build. Each container builds into its own folders (`install_perception/`, `install_isaac/`, `install/`), chosen by `KARIS_ROLE`. |
 | `docker/compose.yaml`, `docker/setup_env.sh`, `docker/.env.example`, `docker/compose.wsl.yaml` | vision computer | the perception and Isaac containers |
 | `docker/perception/Dockerfile` | | Ubuntu 22.04, Humble, PyTorch 2.4 (for YOLO), Ultralytics ≥ 8.4, RF-DETR (own venv); no FoundationPose |
@@ -163,9 +163,9 @@ Run `make_isaac_meshes` again after changing `classes.yaml` (and rebuild first).
 scp robot/g1_camera_ros2.py robot/start_head_camera.sh unitree@192.168.123.164:~/
 ```
 
-### 6. MoveIt container (team image)
+### 6. MoveIt container (motion team)
 
-On the host: `bash ros2_ws/scripts/install.sh` (builds the image and the MoveIt workspace), then `bash ros2_ws/scripts/start.sh` (opens a shell in the container, host network). Inside, build the KARIS motion nodes once: `bash /workspace/build.sh && source /workspace/karis_ros_env.sh`.
+The MoveIt container and its scripts (`install.sh`, `start.sh`, `run_g1.sh`) are on the motion team's branch `feature/g1-xr-clean-deployment` and run on their laptop. Inside it, build the KARIS motion nodes from this repository once: `bash /workspace/build.sh && source /workspace/karis_ros_env.sh`.
 
 ---
 
@@ -188,12 +188,12 @@ ros2 launch karis_isaac_fp isaac_fp.launch.py                      # all classes
 ros2 launch karis_isaac_fp isaac_fp.launch.py classes:="Rund mutter,Ratblock Chamfer"   # less GPU memory
 ```
 
-**MoveIt container** (`bash ros2_ws/scripts/start.sh`; each shell: `source /workspace/karis_ros_env.sh`):
+**MoveIt container** (motion team, their laptop; each shell: `source /workspace/karis_ros_env.sh`):
 ```bash
-bash /workspace/scripts/run_g1.sh          # the team's MoveIt stack (robot model, move_group, arm control); see its README
+bash /workspace/scripts/run_g1.sh          # their MoveIt stack (robot model, move_group, arm control); see their README
 ros2 run karis_task pose_listener          # second shell: prints the poses in pelvis
 ```
-Perception tests without MoveIt/arm control: `bash /workspace/src/karis_bringup/scripts/observe_g1_tf.sh` instead of `run_g1.sh` (read-only robot model; `--fake` = waist straight, e.g. over WiFi). Never both: they publish the same TF.
+Perception tests without MoveIt/arm control: the robot publishes the robot model TF itself, `bash ~/start_cam_both.sh` on the G1 (it runs `start_head_camera.sh --tf`; see `Perception_startup.md`). Never together with `run_g1.sh`: they publish the same TF.
 
 **Try it** (any container):
 ```bash
@@ -202,7 +202,7 @@ ros2 service call /karis/get_objects karis_interfaces/srv/GetObjects "{class_nam
 ros2 run rqt_image_view rqt_image_view /karis/viz/annotated        # transport "compressed"
 ```
 
-**Without the robot:** add `player:=...` to the perception launch, and use `observe_g1_tf.sh --fake` for the robot model. Step-by-step tests: photos [ROS2_image_test_quickstart.md](ROS2_image_test_quickstart.md), video [ROS2_video_test_quickstart.md](ROS2_video_test_quickstart.md).
+**Without the robot:** add `player:=...` to the perception launch. There is no robot model TF then, so only `/karis/object_poses` (camera frame), not `/karis/object_poses_base`. Step-by-step tests: photos [ROS2_image_test_quickstart.md](ROS2_image_test_quickstart.md), video [ROS2_video_test_quickstart.md](ROS2_video_test_quickstart.md).
 
 - **A recording:** `player:=$KARIS_DIR/videos/<name>.bag`, or a frame folder with `timestamps.csv`.
 - **The image-test photos:** `player:=$KARIS_DIR/data`. It needs `rgb/`, `depth/` and `cam_K/` subfolders. Each photo is shown as a still camera view for `player_still_s` seconds (default 20). The perception is reset at every new photo, so parts of one photo are not carried into the next. For photos with many parts use e.g. `player_still_s:=40`.
@@ -219,6 +219,6 @@ ros2 run rqt_image_view rqt_image_view /karis/viz/annotated        # transport "
 | Isaac helper: out of GPU memory | About 1.5 GB per class: start fewer classes (`classes:=...`), or run the helper on another PC on the robot network. |
 | Isaac helper: timeouts | Check the log of `karis_fp_container`. After a failed registration, Isaac ignores new input of that class for up to 5 s, so the next calls can time out too; they recover on their own. |
 | Bridge says "meshes.yaml is from an older make_isaac_meshes" | Run `make_isaac_meshes` again; the meshes are now written centred. |
-| No `/karis/object_poses_base` | The robot model is not running (`run_g1.sh` or `observe_g1_tf.sh` in the MoveIt container), so there is no TF `pelvis → camera`. |
+| No `/karis/object_poses_base` | No robot model TF: `start_cam_both.sh` (with `--tf`) on the G1, or the motion team's `run_g1.sh`, is not running, so there is no TF `pelvis → camera`. |
 | RViz drops `karis/*` frames | Outputs use the vision computer's clock (`stamp_source: now`); keep that unless chrony syncs the G1. |
 | `InvalidParameterTypeException` | Humble checks types: write decimals, e.g. `-p confidence:=0.60`. |

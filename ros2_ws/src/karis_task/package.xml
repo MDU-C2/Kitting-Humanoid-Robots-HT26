@@ -3,7 +3,7 @@
 <package format="3">
   <name>karis_task</name>
   <version>0.1.0</version>
-  <description>KARIS motion side (Humble, runs in the team's MoveIt container: ros2_ws/scripts/start.sh): the pose listener, which prints what the perception sees.</description>
+  <description>KARIS motion side (Humble, runs in the motion team's MoveIt container, see their branch feature/g1-xr-clean-deployment): the pose listener, which prints what the perception sees.</description>
   <maintainer email="kim.svedberg03@gmail.com">Kim Svedberg</maintainer>
   <license>MIT</license>
 

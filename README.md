@@ -81,15 +81,11 @@ git clone https://github.com/MDU-C2/Kitting-Humanoid-Robots-HT26.git
 cd Kitting-Humanoid-Robots-HT26
 ```
 
-Build the MoveIt environment once (Docker image, pinned XR/Unitree sources, workspace, offline tests), then open it:
-
-```bash
-bash ros2_ws/scripts/install.sh
-bash ros2_ws/scripts/start.sh
-```
-
-Connecting to the physical G1 from inside the container: `bash /workspace/scripts/run_g1.sh --check` (read-only), then `bash /workspace/scripts/run_g1.sh` (supervised arm control).
+The MoveIt / arm-control side (G1 URDF `g1_description`, `g1_moveit_config`, `g1_xr_bridge`, its
+container scripts `install.sh` / `start.sh` / `run_g1.sh`) lives on the motion team's side (branch `feature/g1-xr-clean-deployment`, run on their laptop). It receives the
+perception's poses over ROS 2 (`/karis/object_poses_base`) and needs `karis_interfaces` (and
+`karis_task` for the pose listener) from this repository.
 
 ### Perception (camera → part poses)
 
-The perception and the Isaac FoundationPose helper run in their own containers (`docker/compose.yaml`). Setup and daily use: [`docs/instructions/ROS2_pipeline.md`](docs/instructions/ROS2_pipeline.md); live test on the robot: [`docs/instructions/ROS2_live_camera_quickstart.md`](docs/instructions/ROS2_live_camera_quickstart.md); poses in the robot frame (`pelvis`) together with the MoveIt container: [`docs/instructions/ROS2_robot_frame_quickstart.md`](docs/instructions/ROS2_robot_frame_quickstart.md).
+The perception and the Isaac FoundationPose helper run in their own containers (`docker/compose.yaml`). Daily use on the laptop, with the part poses in the robot frame (`pelvis`): [`docs/instructions/Perception_startup.md`](docs/instructions/Perception_startup.md); on the Eskilstuna PC (RTX 5090) over the Zenoh bridge: [`docs/instructions/Perception_on_PC_Zenoh.md`](docs/instructions/Perception_on_PC_Zenoh.md); the Isaac helper image with TensorRT 10.13: [`docs/instructions/Isaac_TensorRT10_Blackwell.md`](docs/instructions/Isaac_TensorRT10_Blackwell.md); overview and setup: [`docs/instructions/ROS2_pipeline.md`](docs/instructions/ROS2_pipeline.md).

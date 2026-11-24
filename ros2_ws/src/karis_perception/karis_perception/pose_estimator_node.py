@@ -398,8 +398,8 @@ class PoseEstimatorNode(Node):
                 self.tf_warned = time.time()
                 self.get_logger().warn(
                     f"No TF {target} <- {arr.header.frame_id} yet ({err.splitlines()[0]}). "
-                    "/karis/object_poses_base starts when the robot model runs on the motion side "
-                    "(the MoveIt stack, or ros2_ws/src/karis_bringup/scripts/observe_g1_tf.sh).")
+                    "/karis/object_poses_base starts when the robot's TF arrives: start_cam_both.sh "
+                    "on the robot (start_head_camera.sh --tf), or the MoveIt stack (run_g1.sh).")
             return None
         out = ObjectPoseArray()
         out.header.stamp, out.header.frame_id = arr.header.stamp, target

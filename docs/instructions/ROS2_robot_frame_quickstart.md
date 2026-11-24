@@ -1,5 +1,10 @@
 # Quickstart: live camera test with the parts' poses in the robot frame (`pelvis`)
 
+> **Outdated.** This page uses `observe_g1_tf.sh` and the MoveIt container's scripts, which are no
+> longer in this branch (they are on the motion team's branch `feature/g1-xr-clean-deployment`).
+> The robot now publishes its own robot model TF (`start_cam_both.sh` → `start_head_camera.sh --tf`):
+> use **[Perception_startup.md](Perception_startup.md)** instead.
+
 The perception computes each part's pose in the camera frame and converts it to the robot's
 `pelvis` frame itself (`/karis/object_poses_base`). For that it needs the transform
 `pelvis → camera` in TF:

@@ -15,7 +15,7 @@ Same frame names and values as the URDF (g1_29dof_with_inspire_hand_ftp.urdf), s
 perception's camera mount (d435_link -> head_camera_color_optical_frame) attaches to it.
 Only the waist is published: that is all the camera needs (the arms are not on the way).
 
-Do NOT run it while the motion laptop runs its robot model (run_g1.sh or observe_g1_tf.sh):
+Do NOT run it while the motion laptop runs its robot model (run_g1.sh):
 TF would get two sources for the same frames.
 
 Parameters: publish_rate (50.0 Hz).

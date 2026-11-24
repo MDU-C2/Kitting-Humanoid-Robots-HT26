@@ -171,7 +171,7 @@ docker compose -f docker/compose.yaml --profile isaac down
 ## Other way: pelvis from the motion laptop instead
 
 If the MoveIt team runs their stack (`run_g1.sh`, with ROS 2 also on WiFi:
-`G1_ROS_EXTRA_INTERFACES` / `G1_ROS_PEERS=192.168.123.184`) or `observe_g1_tf.sh`, their robot
+`G1_ROS_EXTRA_INTERFACES` / `G1_ROS_PEERS=192.168.123.184`), their robot
 model publishes `pelvis`. Then in step 2 do **not** use `start_cam_both.sh` (it always adds
 `--tf`); start the camera without `--tf` instead (`.171` keeps the Eskilstuna PC supplied):
 
@@ -209,7 +209,7 @@ Steps 3–6 are the same.
 | Robot: `unrecognized option --tf` / old messages | The new `start_head_camera.sh` is not on the robot: the `scp` at the top. |
 | Window says `pelvis: no TF` | `tf2_echo pelvis d435_link` (step 5). Nothing → the robot TF does not arrive: robot terminal says `lowstate ... Hz`? Camera images arrive but TF not → `ros2 daemon stop`, then try again. |
 | `tf2_echo pelvis d435_link` works, but not `... head_camera_color_optical_frame` | The camera mount comes from the perception launch: is step 4 running? |
-| TF arrives but jumps between two values | Someone also runs a robot model (`run_g1.sh` / `observe_g1_tf.sh`): use "Other way" below instead of `start_cam_both.sh` (or stop theirs). |
+| TF arrives but jumps between two values | Someone also runs a robot model (`run_g1.sh`): use "Other way" below instead of `start_cam_both.sh` (or stop theirs). |
 | No camera topics over WiFi | Is `start_cam_both.sh` running on the robot (step 2)? Laptop still `192.168.123.184` (`ip -4 -o addr | grep 192.168.123`)? `ping 192.168.123.213` from WSL. |
 | Camera topics listed, but `ros2 topic hz` shows nothing | The robot sends to other peers only (an old camera start): run `bash ~/start_cam_both.sh` again on the robot. |
 | `ssh unitree@192.168.123.213` does not work | Laptop on the team WiFi (`.184`)? Robot on? |
