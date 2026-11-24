@@ -1,3 +1,0 @@
-# Patch files contain whitespace-sensitive diff syntax.
-# Preserve their contents exactly.
-src/g1_xr_bridge/patches/*.patch -whitespace
