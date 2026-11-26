@@ -60,7 +60,7 @@ PC through the VPN interface (the one with `172.16.50.x`):
 ```bash
 ip -br addr | grep 172.16.50                                  # the VPN interface, e.g. eth2
 sudo ip route add 172.17.10.215/32 dev eth2                   # until the next WSL restart
-ssh xrs01@172.17.10.215                                       # → PC terminal
+ssh.exe xrs01@172.17.10.215                                       # → PC terminal
 ```
 
 For a plain terminal `ssh.exe xrs01@172.17.10.215` (Windows' ssh) also works, but not for
@@ -205,7 +205,6 @@ ssh unitree@192.168.123.213                    # the robot over WiFi (or .164 ov
 Password, then at the menu type `1` (Foxy). On the robot:
 
 ```bash
-sudo systemctl stop teleimager.service         # free the camera if not already
 bash ~/start_cam_both.sh
 ```
 
@@ -238,7 +237,7 @@ Inside:
 
 ```bash
 source $KARIS_WS/karis_ros_env.sh
-ros2 launch karis_isaac_fp isaac_fp.launch.py refine_iterations:=3 max_depth:=2
+ros2 launch karis_isaac_fp isaac_fp.launch.py refine_iterations:=5 max_depth:=2
 ```
 
 All classes fit on the 5090: no `classes:=`, no `lean:=true`. Wait for
@@ -259,7 +258,7 @@ Inside (the first line says `CycloneDDS on none on 192.168.123.x found`: expecte
 
 ```bash
 source $KARIS_WS/karis_ros_env.sh
-ros2 launch karis_bringup perception.launch.py model:=rfdetr_seg_small.pth confidence:=0.75 web_port:=8081
+ros2 launch karis_bringup perception.launch.py model:=rfdetr_seg_small.pth confidence:=0.5 web_port:=8081
 ```
 
 No `show:=true` over ssh (no display on your screen). Instead, **watch it in a browser** on any

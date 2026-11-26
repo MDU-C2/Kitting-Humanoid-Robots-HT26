@@ -12,6 +12,13 @@ Publishes:
 Services:
     /karis/get_objects   GetObjects
     /karis/reset, /karis/detect_now, /karis/reregister   std_srvs/Trigger
+    /karis/save_tray_layout   std_srvs/Trigger: saves the slots of the tray in view (whole tray in
+                              view) as the layout the tray pose is fitted to (tray_pose.py)
+
+Tray (parameter tray_class, e.g. bricka): pose from its plane, outline and slots, not FoundationPose.
+Published as <tray>_1 (mode "slots", or "outline" before a layout is saved), and every slot on it
+as <type>_hole_<n> (e.g. ratblock_chamfer_hole_1; n per type, fixed by the layout) with the tray's
+orientation, class_name its HOLE class, mode "empty" / "filled" (a part lies in it) / "not_seen".
 """
 from __future__ import annotations
 
@@ -102,6 +109,8 @@ class PoseEstimatorNode(Node):
         self.backend = p("backend", "isaac")
         self.isaac_service = p("isaac_service", "/karis/fp/estimate_pose")
         self.isaac_timeout = float(p("isaac_timeout_s", 25.0))
+        self.tray_class = str(p("tray_class", "") or "")
+        self.tray_layout = str(p("tray_layout", "") or "")
         self.info_msg = None
 
         self._load_vision()
@@ -137,6 +146,7 @@ class PoseEstimatorNode(Node):
         self.create_service(Trigger, "/karis/reset", self._srv_reset)
         self.create_service(Trigger, "/karis/detect_now", self._srv_detect)
         self.create_service(Trigger, "/karis/reregister", self._srv_reregister)
+        self.create_service(Trigger, "/karis/save_tray_layout", self._srv_save_tray)
 
         self.get_logger().info(
             f"Waiting for the camera: {self.color_topic} ({ctype.__name__}), "
@@ -163,10 +173,25 @@ class PoseEstimatorNode(Node):
         self.model = detectors.load_detector(path, self.image_size, self.device, self.iou,
                                              fallback_size=640, log=self.get_logger().info)
         classes = vision.load_classes(self.classes_file or None)
+        self.tray = None
+        if self.tray_class:
+            if self.tray_class not in set(self.model.names.values()):
+                self.get_logger().warn(f"tray_class '{self.tray_class}' is not a class of this model: "
+                                       "no tray pose")
+            else:
+                from karis_perception.tray_pose import TrayEstimator
+                classes.pop(self.tray_class, None)          # not through FoundationPose
+                layout = Path(self.tray_layout) if self.tray_layout else self.karis_dir / "tray_layout.yaml"
+                self.tray = TrayEstimator(self.tray_class, layout, log=self.get_logger().info)
+        # slot type ("Rund mutter") -> its HOLE class and id, for the slot messages
+        self.hole_class = {}
+        for cid, name in self.model.names.items():
+            if " HOLE" in name:
+                self.hole_class.setdefault(name[:name.find(" HOLE")], (name, int(cid)))
         self.isaac = isaac_backend.IsaacClient(self, self.isaac_service, self.isaac_timeout)
         self.ests, self.fpu, self.glctx = isaac_backend.build_isaac_estimators(
             classes, set(self.model.names.values()), self.isaac, self.get_logger())
-        if not self.ests:
+        if not self.ests and self.tray is None:
             raise RuntimeError("No class in classes.yaml matches the model's classes; nothing to track.")
         self.model.warmup()
         if not self.isaac.wait_for_helper(5.0):
@@ -175,7 +200,8 @@ class PoseEstimatorNode(Node):
         self.class_ids = {v: k for k, v in self.model.names.items()}
         self.get_logger().info(
             f"Model {self.model.model_file} ({self.model.kind}), FoundationPose: {self.backend}, "
-            f"meshes for: {sorted(self.ests)}; confidence {vision.CONFIDENCE}, "
+            f"meshes for: {sorted(self.ests)}"
+            + (f", tray '{self.tray_class}' from its slots" if self.tray else "") + "; confidence {vision.CONFIDENCE}, "
             f"detector every {tracker.REDETECT_EVERY} frames, classes tracked "
             f"{'in parallel' if tracker.PARALLEL_CLASSES else 'one after another'}")
 
@@ -187,7 +213,7 @@ class PoseEstimatorNode(Node):
             self.cam_K = K
             self.info_frame = msg.header.frame_id
             self.tracker = self.trk.PoseTracker(self.model, self.ests, self.fpu, self.glctx, K,
-                                                max_register=self.max_register or None)
+                                                max_register=self.max_register or None, tray=self.tray)
             self.get_logger().info(f"Camera {msg.width}x{msg.height}: fx={K[0, 0]:.1f} "
                                    f"cx={K[0, 2]:.1f} cy={K[1, 2]:.1f}, frame '{msg.header.frame_id}'")
 
@@ -321,6 +347,34 @@ class PoseEstimatorNode(Node):
             o.fit_iou = float(iou) if iou is not None else -1.0
             o.age_s = float(now - self.seen.get(trk["id"], now))
             arr.objects.append(o)
+        tray = self.tray
+        if tray is not None and tray.pose is not None:
+            age = float(now - tray.t_seen) if tray.t_seen else 0.0
+            o = ObjectPose()
+            o.object_id = rc.slug(f"{tray.cls_name}_1")
+            o.class_name = tray.cls_name
+            o.class_id = int(tray.cls_id or 0)
+            o.confidence = float(tray.conf)
+            o.mode = tray.method                       # "slots", or "outline" (no layout saved)
+            o.has_orientation = True
+            o.pose = o.box_pose = rc.matrix_to_pose(tray.pose)
+            o.box_size = rc.vec3([tray.size[0], tray.size[1], 0.003])
+            o.fit_iou = -1.0
+            o.age_s = age
+            arr.objects.append(o)
+            for sl in tray.slots:                      # slots with the tray's orientation
+                cname, cid = self.hole_class.get(sl["type"], (sl["type"], -1))
+                o = ObjectPose()
+                o.object_id = rc.slug(sl["id"])          # "Ratblock Chamfer hole 1" -> ratblock_chamfer_hole_1
+                o.class_name = cname
+                o.class_id = cid
+                o.confidence = float(sl["conf"])
+                o.mode = sl["state"]                   # empty / filled / not_seen
+                o.has_orientation = True
+                o.pose = o.box_pose = rc.matrix_to_pose(sl["pose"])
+                o.fit_iou = -1.0
+                o.age_s = age
+                arr.objects.append(o)
         counters = {}
         for s in self.tracker.slots:
             if s["centre"] is None:
@@ -362,10 +416,11 @@ class PoseEstimatorNode(Node):
             b, g, r = self.vision.class_color(o.class_id)
             box = Marker()
             box.header, box.ns, box.id = arr.header, "karis_parts", i
-            box.type = Marker.CUBE if o.has_orientation else Marker.SPHERE
+            sized = o.has_orientation and o.box_size.x > 0      # slots: orientation but no size
+            box.type = Marker.CUBE if sized else Marker.SPHERE
             box.action = Marker.ADD
             box.pose = o.box_pose
-            if o.has_orientation:
+            if sized:
                 box.scale = o.box_size
             else:
                 box.scale.x = box.scale.y = box.scale.z = 0.015
@@ -488,6 +543,14 @@ class PoseEstimatorNode(Node):
     def _srv_reregister(self, req, res):
         self.rereg_req = True
         res.success, res.message = True, "every tracked part is registered again on the next frame"
+        return res
+
+    def _srv_save_tray(self, req, res):
+        if self.tray is None:
+            res.success, res.message = False, "no tray class (parameter tray_class)"
+            return res
+        res.success, res.message = self.tray.save_layout()
+        (self.get_logger().info if res.success else self.get_logger().warn)(f"tray layout: {res.message}")
         return res
 
     def _srv_get_objects(self, req, res):

@@ -27,6 +27,16 @@ if [ -f "$_karis_install/setup.bash" ]; then
 else
     echo "karis_ros_env: workspace not built yet for role '${KARIS_ROLE:-motion}': bash $_karis_ws/build.sh" >&2
 fi
+# Isaac container: NVIDIA's GXF libraries on the library path. Without it the FoundationPose
+# tracking node sometimes fails to load (libgxf_isaac_message_compositor.so: cannot open shared
+# object file), depending on which node loads first. Added once, also when sourced again.
+if [ "${KARIS_ROLE:-}" = isaac ]; then
+    for _d in /opt/ros/humble/share/gxf_isaac_*/gxf/lib; do
+        [ -d "$_d" ] || continue
+        case ":${LD_LIBRARY_PATH:-}:" in *":$_d:"*) ;; *) LD_LIBRARY_PATH="$_d${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;; esac
+    done
+    export LD_LIBRARY_PATH
+fi
 
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp

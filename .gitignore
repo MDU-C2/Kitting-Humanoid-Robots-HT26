@@ -41,3 +41,4 @@ local_data/models/*
 !local_data/models/README.md
 docker/.env.*
 !docker/.env.example
+experiments/*

@@ -22,6 +22,10 @@ karis_pose_estimator:
     reregister_iou: 0.2           # drift check: register a part again if mesh/mask overlap drops below this
     parallel_classes: false       # true = track parts of different classes at the same time (experimental:
                                   # compare "Frame, tracking only" in the summary printed at Ctrl+C)
+    # --- tray: pose from its plane, outline and slots (not FoundationPose); its slots get its orientation
+    tray_class: bricka            # "" = off: the tray through FoundationPose, slots as centre points
+    tray_layout: ""               # "" = <karis_dir>/tray_layout.yaml. Save once, whole tray in view:
+                                  #   ros2 service call /karis/save_tray_layout std_srvs/srv/Trigger
     min_valid_depth_px: 50        # a part needs this many depth pixels in its mask
     min_depth_m: 0.1              # depth outside this range is ignored
     max_depth_m: 3.0

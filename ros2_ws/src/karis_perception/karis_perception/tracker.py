@@ -3,7 +3,9 @@
 Parts are tracked from their previous pose every frame. Every REDETECT_EVERY frames the
 detector runs: new parts are registered, parts whose silhouette IoU drops below
 REREGISTER_IOU are registered again, and parts missed LOST_AFTER times are dropped.
-Classes without a mesh (tray slots) only get a centre point.
+Classes without a mesh (tray slots) only get a centre point. With a tray estimator
+(tray_pose.TrayEstimator) the tray gets its pose from its plane, outline and slots, and the slots
+on it get the tray's orientation.
 """
 from __future__ import annotations
 
@@ -48,8 +50,10 @@ def rot_angle_deg(Ra, Rb):
     return float(np.degrees(np.arccos(np.clip(c, -1.0, 1.0))))
 
 
-def draw_frame(rgb, tracks, slots, ests, K, fpu, info):
+def draw_frame(rgb, tracks, slots, ests, K, fpu, info, tray=None):
     vis = rgb.copy()
+    if tray is not None and tray.pose is not None:
+        vis = tray.draw(vis, K, vision.class_color(tray.cls_id or 0))
     for trk in tracks.values():
         e = ests[trk["cls_name"]]
         color = vision.class_color(trk["cls_id"])
@@ -78,14 +82,18 @@ def draw_frame(rgb, tracks, slots, ests, K, fpu, info):
         lines.append((f"{base}: " + ("from TF" if T_base is not None else "no TF (robot model not running)"),
                       (150, 255, 150) if T_base is not None else (255, 180, 80)))
     lines.append(("", None))
-    for trk in tracks.values():
-        t = trk["pose"][:3, 3]
-        r = vision.rot_to_rpy_deg(trk["pose"][:3, :3])
-        lines.append((trk["id"], vision.class_color(trk["cls_id"])))
+    rows = [(trk["id"], trk["cls_id"], trk["pose"], "") for trk in tracks.values()]
+    if tray is not None and tray.pose is not None:
+        how = (f"{tray.n_matched} slots matched" if tray.method == "slots" else "outline only, no layout")
+        rows.insert(0, (f"{tray.cls_name}_1", tray.cls_id or 0, tray.pose, f"  ({how})"))
+    for tid, cid, P, note in rows:
+        t = P[:3, 3]
+        r = vision.rot_to_rpy_deg(P[:3, :3])
+        lines.append((tid + note, vision.class_color(cid)))
         lines.append((f"  cam xyz {t[0]:+.3f} {t[1]:+.3f} {t[2]:+.3f} m", (220, 220, 220)))
         lines.append((f"  cam rpy {r[0]:+.0f} {r[1]:+.0f} {r[2]:+.0f} deg", (220, 220, 220)))
         if T_base is not None:
-            pb = T_base @ trk["pose"]
+            pb = T_base @ P
             tb, rb = pb[:3, 3], vision.rot_to_rpy_deg(pb[:3, :3])
             lines.append((f"  {base[:6]} xyz {tb[0]:+.3f} {tb[1]:+.3f} {tb[2]:+.3f} m", (150, 255, 150)))
             lines.append((f"  {base[:6]} rpy {rb[0]:+.0f} {rb[1]:+.0f} {rb[2]:+.0f} deg", (150, 255, 150)))
@@ -102,10 +110,12 @@ def draw_frame(rgb, tracks, slots, ests, K, fpu, info):
 class PoseTracker:
     """Detection + registration + tracking of every part, one frame at a time."""
 
-    def __init__(self, model, ests, fpu, glctx, K, max_register=None, check=None):
+    def __init__(self, model, ests, fpu, glctx, K, max_register=None, check=None, tray=None):
         """check(entry, pose, K, depth, mask, fpu, glctx) -> (iou, depth_err, mask); default
-        isaac_backend.silhouette_check."""
+        isaac_backend.silhouette_check. tray: a tray_pose.TrayEstimator, or None (then the tray,
+        if it has a mesh, goes through FoundationPose like the parts)."""
         self.model, self.ests, self.fpu, self.glctx, self.K = model, ests, fpu, glctx, K
+        self.tray = tray
         if check is None:
             from karis_perception.isaac_backend import silhouette_check as check
         self.check = check
@@ -126,6 +136,8 @@ class PoseTracker:
         self.last_dets = []       # detector output of the last detection frame (masks view)
         self.k = 0
         self.pending = False      # registrations left for the next frame
+        if getattr(self, "tray", None) is not None:
+            self.tray.pose, self.tray.matched_px, self.tray.slots, self.tray.missed = None, [], [], 0
 
     def _register(self, trk, det, depth, rgb):
         est = self.ests[trk["cls_name"]]["est"]
@@ -142,6 +154,17 @@ class PoseTracker:
         trk["conf"] = det.get("conf")
         trk["iou"] = None
         return ms
+
+    def _on_tray(self, dets):
+        """ids of the HOLE detections the tray estimator used (their centre lies on the tray)."""
+        if self.tray is None or self.tray.pose is None or self.tray.last is None:
+            return set()
+        trays = [d for d in dets if d["cls_name"] == self.tray.cls_name]
+        if not trays:
+            return set()
+        m = max(trays, key=lambda d: np.count_nonzero(d["mask"]))["mask"]
+        return {id(d) for d in dets if " HOLE" in d["cls_name"]
+                and m[int(round(d["center_px"][1])), int(round(d["center_px"][0]))]}
 
     def _closest(self, det, track_ids, max_px):
         """Nearest track of the same class among track_ids, within max_px."""
@@ -222,11 +245,19 @@ class PoseTracker:
             tm["det_ms"] = (time.perf_counter() - t0) * 1000
             self.last_dets = dets
             self.det_times.append(tm["det_ms"])
+            if self.tray is not None:
+                t1 = time.perf_counter()
+                self.tray.update(dets, depth, K)
+                tm["tray_ms"] = (time.perf_counter() - t1) * 1000
 
             self.slots = []
             unmatched = set(self.tracks)
             new_dets, matched = [], []
+            on_tray = self._on_tray(dets)
             for det in dets:
+                if self.tray is not None and (det["cls_name"] == self.tray.cls_name
+                                              or id(det) in on_tray):
+                    continue          # the tray and its holes: from the tray estimator
                 if det["cls_name"] not in ests:
                     self.slots.append({"cls_name": det["cls_name"], "cls_id": det["cls_id"],
                                        "conf": det.get("conf"),
@@ -296,6 +327,21 @@ class PoseTracker:
                 "roll_deg": round(r[0], 1), "pitch_deg": round(r[1], 1), "yaw_deg": round(r[2], 1),
                 "qx": round(q[0], 5), "qy": round(q[1], 5), "qz": round(q[2], 5), "qw": round(q[3], 5),
                 "_R": P[:3, :3].copy()})
+        if self.tray is not None and self.tray.pose is not None:
+            for oid, typ, mode, P in ([(f"{self.tray.cls_name}_1", self.tray.cls_name,
+                                        self.tray.method, self.tray.pose)]
+                                      + [(s["id"], s["type"], s["state"],
+                                          s["pose"]) for s in self.tray.slots]):
+                r = vision.rot_to_rpy_deg(P[:3, :3])
+                q = vision.rot_to_quat_xyzw(P[:3, :3])
+                row = {"frame": frame_no, "time_s": round(t_rec, 3), "object_id": oid, "class": typ,
+                       "mode": mode, "x_m": round(P[0, 3], 4), "y_m": round(P[1, 3], 4),
+                       "z_m": round(P[2, 3], 4), "roll_deg": round(r[0], 1), "pitch_deg": round(r[1], 1),
+                       "yaw_deg": round(r[2], 1), "qx": round(q[0], 5), "qy": round(q[1], 5),
+                       "qz": round(q[2], 5), "qw": round(q[3], 5)}
+                if oid == f"{self.tray.cls_name}_1":
+                    row["_R"] = P[:3, :3].copy()      # jitter summary: the tray only
+                self.pose_rows.append(row)
         if detect_now:
             for i, s in enumerate(self.slots):
                 if s["centre"] is not None:
@@ -308,7 +354,7 @@ class PoseTracker:
 
     def draw(self, bgr, info):
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        vis = draw_frame(rgb, self.tracks, self.slots, self.ests, self.K, self.fpu, info)
+        vis = draw_frame(rgb, self.tracks, self.slots, self.ests, self.K, self.fpu, info, self.tray)
         return cv2.cvtColor(vis, cv2.COLOR_RGB2BGR)
 
     def save_csv(self, out_dir):

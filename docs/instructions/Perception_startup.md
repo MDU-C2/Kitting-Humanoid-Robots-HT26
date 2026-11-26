@@ -43,9 +43,6 @@ New tab (wsl):
 
 ```bash
 cd ~/Kitting-Humanoid-Robots-HT26
-git pull --no-rebase
-ip -4 -o addr | grep 192.168.123                                # an interface with 192.168.123.184
-ping -c 3 192.168.123.213                                       # the robot answers over WiFi
 bash docker/setup_env.sh --robot 192.168.123.213 --if ""         # "" = find the 192.168.123.x interface
 docker compose -f docker/compose.yaml -f docker/compose.wsl.yaml up -d --force-recreate perception
 docker compose -f docker/compose.yaml -f docker/compose.wsl.yaml --profile isaac up -d --force-recreate isaac_fp
@@ -64,7 +61,6 @@ ssh unitree@192.168.123.213                                     # the robot's ip
 Password, then at the menu type `1` (Foxy). On the robot (prompt `unitree@ubuntu:~$`):
 
 ```bash
-sudo systemctl stop teleimager.service                  # free the camera if not already
 bash ~/start_cam_both.sh
 ```
 
@@ -100,8 +96,7 @@ Inside (prompt `root@LAPTOP-PQVFOCEA:...#`). The first line must say: `CycloneDD
 
 ```bash
 bash $KARIS_WS/build.sh && source $KARIS_WS/karis_ros_env.sh        # only after a git pull / code change
-bash $KARIS_REPO/docker/isaac_fp/prepare_models.sh                  # only builds missing engines (first start of a new image)
-export LD_LIBRARY_PATH=$(ls -d /opt/ros/humble/share/gxf_isaac_*/gxf/lib | tr '\n' ':')$LD_LIBRARY_PATH   # see below
+# bash $KARIS_REPO/docker/isaac_fp/prepare_models.sh                  # only builds missing engines (first start of a new image)
 ros2 launch karis_isaac_fp isaac_fp.launch.py classes:="Ratblock Chamfer" refine_iterations:=3 max_depth:=2
 # classes:="Bricka"
 ```
@@ -112,9 +107,9 @@ Leave this terminal running.
 Only **one** Isaac helper at a time (both would offer `/karis/fp/estimate_pose`). If the test
 container from `Isaac_TensorRT10_Blackwell.md` still exists: `docker stop karis_isaac_fp_trt10` in WSL.
 
-The `export LD_LIBRARY_PATH=...` line puts NVIDIA's GXF libraries on the library path. Without it
-the tracking node sometimes fails to load (`libgxf_isaac_message_compositor.so: cannot open shared
-object file`), depending on which node happens to load first.
+`karis_ros_env.sh` puts NVIDIA's GXF libraries on the library path in the Isaac container. Without
+that the tracking node sometimes fails to load (`libgxf_isaac_message_compositor.so: cannot open
+shared object file`), depending on which node happens to load first.
 
 ## 4. Perception terminal: check the camera, then start
 
@@ -130,11 +125,13 @@ Inside (prompt `root@LAPTOP-PQVFOCEA:.../local_data#`). The first line must say:
 ```bash
 bash $KARIS_WS/build.sh && source $KARIS_WS/karis_ros_env.sh    # only after a git pull / code change
 ros2 daemon stop
-ros2 launch karis_bringup perception.launch.py model:=rfdetr_seg_small.pth show:=true confidence:=0.5
+ros2 launch karis_bringup perception.launch.py model:=rfdetr_seg_small.pth show:=true confidence:=0.5 web_port:=8081
 ```
 
 The window will show ratblock_chamfer with box and axes, and on the right **`pelvis: from TF`** with the green `pelvis xyz/rpy` of the
 part. Leave this terminal running.
+
+Then open http://localhost:8081/ in the browser on the laptop (or http://192.168.123.184:8081/ if you run it on another PC). You get three views: the annotated image, the masks, and the raw camera.
 
 ## 5. Check terminal: TF and the part in pelvis
 
@@ -200,7 +197,7 @@ Steps 3–6 are the same.
 | Problem | Fix |
 |---|---|
 | `ros2: command not found` | You are in plain WSL: use a container terminal. |
-| Isaac: `Failed to load node 'foundationpose_tracking' ... libgxf_isaac_message_compositor.so: cannot open shared object file` | Ctrl+C, run the `export LD_LIBRARY_PATH=...` line of step 3, start again. |
+| Isaac: `Failed to load node 'foundationpose_tracking' ... libgxf_isaac_message_compositor.so: cannot open shared object file` | The terminal did not load `karis_ros_env.sh` (or an old copy): Ctrl+C, `source $KARIS_WS/karis_ros_env.sh`, start again. |
 | Isaac: `deserialize` / `engine ... incompatible` / `Unsupported SM` | Engines from another TensorRT version, or the old image: step 1 recreates `isaac_fp` with `karis/isaac_fp:3.2-trt10.13`; then in the Isaac terminal `rm /models/*.plan` and `bash $KARIS_REPO/docker/isaac_fp/prepare_models.sh` (`Isaac_TensorRT10_Blackwell.md`). |
 | `CycloneDDS on ethX (172.16.x.x)` | Pinned to the VPN interface: step 1 with `--if ""`, or in the terminal `export KARIS_NET_IF= && source $KARIS_WS/karis_ros_env.sh`. |
 | Robot: `--tf needs a Python with unitree_sdk2py` | Give one: `--sdk-python ~/miniconda3/envs/tv/bin/python` (or `inspire`, `~/motiontest/bin/python`). |
